@@ -1,0 +1,15 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.nammapondyproperties.twa",
+      "sha256_cert_fingerprints": [
+        "09:40:34:98:BD:99:00:32:4F:FE:BA:EA:6A:B0:3C:E9:44:C2:66:1E:64:95:2C:E3:D9:8A:3B:CA:BE:7C:3E:C2",
+        "3E:9C:DC:BF:FE:9C:B1:FC:49:E4:25:8F:A1:CF:55:85:EE:71:2A:FF:59:D3:B2:F5:18:34:44:65:99:1B:22:65"
+      ]
+    }
+  }
+]
