@@ -22,12 +22,12 @@ import {
 } from "antd";
 import { Hash, UserPlus, UserCircle, ShieldCheck as ShieldIcon, UserCog, ChevronDown } from "lucide-react";
 import { getImageUrl } from "@/utils/imageUrl";
-import { 
-  Trash2, 
-  AlertCircle, 
-  Clock, 
-  CheckCircle, 
-  XCircle, 
+import {
+  Trash2,
+  AlertCircle,
+  Clock,
+  CheckCircle,
+  XCircle,
   MoreVertical,
   Briefcase,
   UserCheck,
@@ -37,7 +37,9 @@ import {
   Facebook,
   Instagram,
   Linkedin,
-  Home
+  Home,
+  Megaphone,
+  IndianRupee
 } from "lucide-react";
 import api from "@/services/api";
 import { useSocket } from "@/context/SocketContext";
@@ -46,6 +48,31 @@ import Loader from "@/components/Common/Loader";
 import moment from "moment";
 
 const { Title, Text } = Typography;
+
+// Promoter Module Task 9.1 — campaign status labels for a promoter's
+// per-project row. 'no_plan' and 'limit_reached' are derived client-side
+// values from getPromoterCampaigns, not real Campaign.status enum values.
+const CAMPAIGN_PROJECT_STATUS_LABEL = {
+  no_plan: "No Plan",
+  limit_reached: "Limit Reached",
+  draft: "Draft",
+  payment_received: "Payment Received",
+  active: "Active",
+  paused: "Paused",
+  completed: "Completed",
+  expired: "Expired",
+};
+const CAMPAIGN_PROJECT_STATUS_COLOR = {
+  no_plan: "default",
+  limit_reached: "gold",
+  draft: "default",
+  payment_received: "gold",
+  active: "green",
+  paused: "orange",
+  completed: "blue",
+  expired: "red",
+};
+const isPromoterRecord = (record) => /Builder|Promoter/i.test(record?.businessType?.name || "");
 
 const SellerList = () => {
   const { user: currentUser } = useAuth();
@@ -56,6 +83,10 @@ const SellerList = () => {
   const [isDetailModalVisible, setIsDetailModalVisible] = useState(false);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [assigningLoading, setAssigningLoading] = useState(false);
+  const [campaignModalVisible, setCampaignModalVisible] = useState(false);
+  const [campaignSummary, setCampaignSummary] = useState({ projects: [], paymentHistory: [] });
+  const [campaignSummaryLoading, setCampaignSummaryLoading] = useState(false);
+  const [campaignPromoterName, setCampaignPromoterName] = useState("");
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const typeFilter = searchParams.get("type");
@@ -130,6 +161,21 @@ const SellerList = () => {
       };
     }
   }, [socket]);
+
+  const handleViewCampaigns = async (record) => {
+    setCampaignPromoterName(record.name || "Promoter");
+    setCampaignModalVisible(true);
+    setCampaignSummaryLoading(true);
+    try {
+      const res = await api.get(`/admin/campaigns/by-promoter/${record._id}`);
+      setCampaignSummary({ projects: res.data?.projects || [], paymentHistory: res.data?.paymentHistory || [] });
+    } catch (error) {
+      console.error("Failed to fetch promoter campaigns:", error);
+      message.error("Failed to load campaign details");
+    } finally {
+      setCampaignSummaryLoading(false);
+    }
+  };
 
   const handleDelete = (id) => {
     Modal.confirm({
@@ -451,6 +497,15 @@ const SellerList = () => {
               </div>
             ),
           },
+          isPromoterRecord(record) && {
+            key: "viewCampaigns",
+            label: (
+              <div className="flex items-center gap-2" onClick={() => handleViewCampaigns(record)}>
+                <Megaphone size={14} className="text-indigo-600" />
+                <span>View Campaigns</span>
+              </div>
+            ),
+          },
           (currentUser?.isSuperAdmin || currentUser?.permissions?.includes("delete_seller")) && {
             key: "delete",
             danger: true,
@@ -679,6 +734,103 @@ const SellerList = () => {
             <Button onClick={() => setIsAssignModalOpen(false)}>Cancel</Button>
           </div>
         </div>
+      </Modal>
+
+      {/* Promoter Module Task 9.1 — Campaign summary (Projects + Payment History) */}
+      <Modal
+        title={
+          <div className="flex items-center gap-2 border-b border-gray-100 pb-4 mb-0">
+            <Megaphone size={20} className="text-indigo-600" />
+            <span className="text-lg font-bold">{campaignPromoterName} — Campaigns</span>
+          </div>
+        }
+        open={campaignModalVisible}
+        onCancel={() => setCampaignModalVisible(false)}
+        footer={[
+          <Button key="close" onClick={() => setCampaignModalVisible(false)} className="rounded-lg h-10 px-6">
+            Close
+          </Button>,
+        ]}
+        width={800}
+        centered
+        styles={{ body: { maxHeight: "70vh", overflowY: "auto", padding: "24px" } }}
+      >
+        <Title level={5} className="mb-3!">
+          Projects
+        </Title>
+        <Table
+          dataSource={campaignSummary.projects}
+          rowKey="projectId"
+          loading={campaignSummaryLoading}
+          pagination={false}
+          size="small"
+          className="mb-8"
+          locale={{ emptyText: "No projects yet" }}
+          columns={[
+            { title: "Project", dataIndex: "projectTitle", key: "projectTitle" },
+            {
+              title: "Plan",
+              dataIndex: "planName",
+              key: "planName",
+              render: (v) => v || <span className="text-gray-400">—</span>,
+            },
+            {
+              title: "Leads",
+              key: "leads",
+              render: (_, row) =>
+                row.committedMinimum !== null ? (
+                  <span>
+                    {row.deliveredCount} / {row.committedMinimum}
+                  </span>
+                ) : (
+                  <span className="text-gray-400">—</span>
+                ),
+            },
+            {
+              title: "Status",
+              dataIndex: "status",
+              key: "status",
+              render: (status) => (
+                <Tag color={CAMPAIGN_PROJECT_STATUS_COLOR[status] || "default"} className="rounded-full px-3 capitalize">
+                  {CAMPAIGN_PROJECT_STATUS_LABEL[status] || status}
+                </Tag>
+              ),
+            },
+          ]}
+        />
+
+        <Title level={5} className="mb-3!">
+          Payment History
+        </Title>
+        <Table
+          dataSource={campaignSummary.paymentHistory}
+          rowKey="_id"
+          loading={campaignSummaryLoading}
+          pagination={{ pageSize: 5 }}
+          size="small"
+          locale={{ emptyText: "No campaign payments yet" }}
+          columns={[
+            {
+              title: "Date",
+              dataIndex: "date",
+              key: "date",
+              render: (v) => moment(v).format("DD MMM YYYY"),
+            },
+            { title: "Project", dataIndex: "projectTitle", key: "projectTitle" },
+            { title: "Plan", dataIndex: "planName", key: "planName" },
+            {
+              title: "Amount",
+              dataIndex: "amountPaid",
+              key: "amountPaid",
+              render: (v) => (
+                <span className="flex items-center font-semibold">
+                  <IndianRupee size={12} className="mr-0.5" />
+                  {Number(v || 0).toLocaleString("en-IN")}
+                </span>
+              ),
+            },
+          ]}
+        />
       </Modal>
 
       {/* Builder Details Modal */}

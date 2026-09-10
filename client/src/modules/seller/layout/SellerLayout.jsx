@@ -12,6 +12,7 @@ import { useSocket } from "../../../context/SocketContext";
 import SellerSidebar from "./SellerSidebar";
 import { getImageUrl } from "../../../utils/imageUrl";
 import Loader from "../../../components/Common/Loader";
+import NotificationBell from "../../../components/Common/NotificationBell";
 
 const { Header, Content } = Layout;
 
@@ -199,6 +200,11 @@ const SellerLayout = () => {
           </div>
 
           <div className="flex items-center gap-4">
+            {/* Portal notifications (Promoter Module Task 6.1) — promoters only,
+                separate from the support-message bell below which every
+                business type sees */}
+            {/Builder|Promoter/i.test(user?.businessType?.name || "") && <NotificationBell />}
+
             <Badge count={supportCount} size="small" offset={[-2, 2]}>
               <Dropdown
                 menu={{ 

@@ -25,6 +25,19 @@ export const checkPropertyListingLimit = (user, overrideCount) => {
     };
   }
 
+  // 1.5 Promoters: listings are free and unlimited (campaigns, not listings, are
+  // the paid/metered unit). Skips the plan-based limit below entirely.
+  const businessType = user.businessType?.name || "";
+  if (businessType.match(/Builder|Promoter/i)) {
+    return {
+      canPost: true,
+      currentCount,
+      limit: -1,
+      message: "Unlimited listings",
+      redirectPath: null,
+    };
+  }
+
   // 2. Role-Based Limits & Subscriptions
   let limit = 3; // Default fallback for Agents/Owners
   let planName = "Free";
@@ -36,10 +49,7 @@ export const checkPropertyListingLimit = (user, overrideCount) => {
     planName = user.activeSubscription.plan.name;
   } else {
     // Role-based limits for Free Tier
-    const businessType = user.businessType?.name || "";
-    if (businessType.match(/Builder|Promoter/i)) {
-      limit = 1; // Builders get 1 free listing
-    } else if (businessType.match(/Agent|Owner/i)) {
+    if (businessType.match(/Agent|Owner/i)) {
       limit = 3; // Agents/Owners get 3 free listings
     }
     if (isExpired) planName = "Expired";

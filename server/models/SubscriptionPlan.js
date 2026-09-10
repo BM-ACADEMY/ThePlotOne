@@ -26,6 +26,11 @@ const subscriptionPlanSchema = new mongoose.Schema(
       required: true,
       default: 2
     }, // Total leads the seller can receive/accept
+    committedMinimum: {
+      type: Number,
+      default: 0
+    }, // Campaign plans only — guaranteed lead count per Pricing V7 §2.1 (22/50/85).
+       // 0/unset means this plan isn't configured for campaigns yet.
     duration: { 
       type: Number, 
       required: false, // Optional for lifetime plans

@@ -14,6 +14,10 @@ import {
   Home,
   ArrowRight,
   Phone,
+  Megaphone,
+  Rocket,
+  UploadCloud,
+  Gauge,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import api from "@/services/api";
@@ -86,15 +90,20 @@ const Dashboard = () => {
     recentProperties: [],
     recentEnquiries: [],
     expiringSubscriptions: [],
+    // Promoter Module Task 9.2 — Campaign Status widget
+    campaignStats: { activeCampaigns: 0, pendingActivation: 0, leadsUploadedToday: 0, campaignsAtLimit: 0 },
   });
 
   useEffect(() => {
     const fetchStats = async () => {
       setLoading(true);
       try {
-        const res = await api.get(`/properties/admin-stats?range=${range}`);
-        const expiringRes = await api.get("/subscriptions/admin/expiring-soon");
-        setData({ ...res.data, expiringSubscriptions: expiringRes.data });
+        const [res, expiringRes, campaignStatsRes] = await Promise.all([
+          api.get(`/properties/admin-stats?range=${range}`),
+          api.get("/subscriptions/admin/expiring-soon"),
+          api.get("/admin/campaigns/stats"),
+        ]);
+        setData({ ...res.data, expiringSubscriptions: expiringRes.data, campaignStats: campaignStatsRes.data });
       } catch (err) {
         console.error("Failed to fetch admin stats", err);
         setError("Failed to load dashboard data.");
@@ -182,6 +191,39 @@ const Dashboard = () => {
       color: "#f6ffed",
       desc: "Properties by Sellers",
       path: "/admin/seller/overview",
+    },
+    // Promoter Module Task 9.2 — Campaign Status widget
+    {
+      title: "Active Campaigns",
+      value: data.campaignStats?.activeCampaigns ?? 0,
+      icon: <Megaphone size={24} className="text-indigo-500" />,
+      color: "#f0f5ff",
+      desc: "Currently delivering leads",
+      path: "/admin/campaigns",
+    },
+    {
+      title: "Pending Activation",
+      value: data.campaignStats?.pendingActivation ?? 0,
+      icon: <Rocket size={24} className="text-amber-500" />,
+      color: "#fffbe6",
+      desc: "Action required — paid, awaiting activation",
+      path: "/admin/campaigns",
+    },
+    {
+      title: "Leads Uploaded Today",
+      value: data.campaignStats?.leadsUploadedToday ?? 0,
+      icon: <UploadCloud size={24} className="text-cyan-500" />,
+      color: "#e6fffb",
+      desc: "Campaign leads delivered today",
+      path: "/admin/campaigns",
+    },
+    {
+      title: "Campaigns at Limit",
+      value: data.campaignStats?.campaignsAtLimit ?? 0,
+      icon: <Gauge size={24} className="text-rose-500" />,
+      color: "#fff0f6",
+      desc: "Delivered >= committed minimum",
+      path: "/admin/campaigns",
     },
   ];
 

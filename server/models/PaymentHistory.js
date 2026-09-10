@@ -27,6 +27,10 @@ const paymentHistorySchema = new mongoose.Schema(
     expiryDate: { type: Date },
     couponCode: { type: String },
     discountAmount: { type: Number, default: 0 },
+    // Set only for campaign payments (Promoter Module Task 4.3) — unset/null
+    // for the generic account-level subscription flow.
+    campaign: { type: mongoose.Schema.Types.ObjectId, ref: "Campaign" },
+    project: { type: mongoose.Schema.Types.ObjectId, ref: "Property" },
   },
   { timestamps: true }
 );

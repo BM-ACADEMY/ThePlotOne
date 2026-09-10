@@ -7,17 +7,30 @@ const subscriptionSchema = new mongoose.Schema(
       ref: "User", 
       required: true 
     },
-    plan: { 
-      type: mongoose.Schema.Types.ObjectId, 
-      ref: "SubscriptionPlan", 
-      required: true 
+    plan: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "SubscriptionPlan",
+      required: true
+    },
+    campaign: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Campaign",
+    },
+    project: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Property",
+    },
+    invoiceNo: {
+      type: String,
+      unique: true,
+      sparse: true,
     },
     startDate: { type: Date, default: Date.now },
     endDate: { type: Date, required: true },
-    status: { 
-      type: String, 
-      enum: ["active", "expired", "cancelled"], 
-      default: "active" 
+    status: {
+      type: String,
+      enum: ["pending", "active", "expired", "cancelled"],
+      default: "active"
     },
     leadsUsed: {
       type: Number,

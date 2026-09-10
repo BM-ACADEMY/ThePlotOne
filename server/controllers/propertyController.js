@@ -10,6 +10,7 @@ const ApprovalType = require("../models/ApprovalType");
 const User = require("../models/User");
 const BusinessType = require("../models/BusinessType");
 const Subscription = require("../models/Subscription");
+const Requirement = require("../models/Requirement");
 const SubscriptionPlan = require("../models/SubscriptionPlan");
 const WebsiteSetting = require("../models/WebsiteSetting");
 const { sendPropertyNotification } = require("../utils/emailService");
@@ -44,51 +45,8 @@ exports.createProperty = async (req, res) => {
         });
       }
 
-      // 🛡️ Restriction 2: Role-based limits for verified sellers
-      const settings = await WebsiteSetting.findOne();
-      let propertyLimit = settings?.sellerPropertyLimit || 3; // Default fallback
-      let planName = settings?.defaultPlanName || "FREE";
-
-      // A. If user has an active subscription, use its limit
-      if (req.user.activeSubscription) {
-        const subscription = await Subscription.findById(req.user.activeSubscription).populate("plan");
-        if (subscription && subscription.status === "active" && subscription.plan) {
-          propertyLimit = subscription.plan.propertyLimit;
-          planName = subscription.plan.name;
-        }
-      } else {
-        // B. Free Tier Limits (Based on Business Type)
-        const businessTypeName = req.user.businessType?.name || "";
-        
-        if (businessTypeName.match(/Builder|Promoter/i)) {
-          propertyLimit = 1; // Builders: Max 1 property for free
-        } else if (businessTypeName.match(/Agent|Owner/i)) {
-          propertyLimit = 3; // Agents/Owners: Max 3 properties for free
-        }
-      }
-
-      // Check if limit is reached (propertyLimit of -1 means unlimited)
-      if (propertyLimit !== -1 && propertyCount >= propertyLimit) {
-        // Delete uploaded files to avoid garbage
-        if (req.files) {
-          const filesToDelete = [...(req.files.images || []), ...(req.files.floorPlan || [])];
-          filesToDelete.forEach((file) => {
-            try {
-              fs.unlinkSync(path.join(__dirname, "../uploads/properties", file.filename));
-            } catch (err) {
-              console.error("Error deleting file:", err);
-            }
-          });
-        }
-        
-        return res.status(403).json({ 
-          error: `Your ${planName} plan allows only ${propertyLimit} properties. Please upgrade your plan for more uploads.`,
-          limitReached: true,
-          currentCount: propertyCount,
-          limit: propertyLimit,
-          reason: "limit_reached"
-        });
-      }
+      // Listings are FREE and UNLIMITED — no plan/subscription-based property
+      // count quota. Only campaigns (paid advertising on a project) are metered.
     }
 
     // Handle Files (images and floorPlan)
@@ -1011,6 +969,83 @@ exports.getBuilderOtherProperties = async (req, res) => {
     res.json(otherProperties);
   } catch (error) {
     console.error("Builder Other Properties Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Get the logged-in promoter's own listings, with campaign status per listing
+// (Promoter Module Task 3.3 — GET /api/properties/my-listings)
+exports.getMyListings = async (req, res) => {
+  try {
+    const { page = 1, limit = 50 } = req.query;
+    const query = { seller: req.user._id };
+
+    const properties = await Property.find(query)
+      .populate({
+        path: "activeCampaign",
+        // Only fetch what's needed to derive promoter-facing outcome fields below —
+        // never the full Campaign document (notes, activatedBy, discountTier,
+        // paceStatus, status etc. are admin-only mechanics/internals).
+        select: "plan expiresAt",
+        populate: { path: "plan", select: "name displayName" },
+      })
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .sort({ createdAt: -1 });
+
+    const count = await Property.countDocuments(query);
+
+    // Promoter Module Task 10.2 — "New today" count per project, for the
+    // promoter home dashboard. One batched aggregate for the whole page of
+    // properties rather than a query per property.
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const propertyIds = properties.map((p) => p._id);
+    const todayCounts = await Requirement.aggregate([
+      { $match: { matchedProject: { $in: propertyIds }, campaignId: { $ne: null }, deliveredAt: { $gte: startOfToday } } },
+      { $group: { _id: "$matchedProject", count: { $sum: 1 } } },
+    ]);
+    const todayCountByProject = new Map(todayCounts.map((c) => [String(c._id), c.count]));
+
+    const enriched = properties.map((property) => {
+      const obj = property.toObject();
+      const campaign = obj.activeCampaign; // used only to derive fields below, never returned raw
+      const plan = campaign?.plan;
+      const committedLeads = obj.committedLeads || 0;
+      const deliveredLeads = obj.deliveredLeads || 0;
+
+      let daysRemaining = null;
+      if (obj.isCampaignActive && campaign?.expiresAt) {
+        const msRemaining = new Date(campaign.expiresAt).getTime() - Date.now();
+        daysRemaining = Math.max(Math.ceil(msRemaining / (24 * 60 * 60 * 1000)), 0);
+      }
+
+      // Explicit allow-list for campaign data: strip the raw populated Campaign
+      // sub-document entirely and replace it with only the promoter-facing
+      // outcome fields (TPO-Campaign-Visibility-Rules.md — mechanics/internals
+      // are admin-only and must never reach a promoter/agent serialiser).
+      delete obj.activeCampaign;
+
+      return {
+        ...obj,
+        isCampaignActive: obj.isCampaignActive || false,
+        campaignPlan: plan ? (plan.displayName || plan.name) : null,
+        committedLeads,
+        deliveredLeads,
+        remainingLeads: Math.max(committedLeads - deliveredLeads, 0),
+        daysRemaining,
+        newLeadsToday: todayCountByProject.get(String(obj._id)) || 0,
+      };
+    });
+
+    res.json({
+      properties: enriched,
+      totalPages: Math.ceil(count / limit),
+      currentPage: Number(page),
+      totalProperties: count,
+    });
+  } catch (error) {
+    console.error("Get My Listings Error:", error);
     res.status(500).json({ error: error.message });
   }
 };

@@ -13,9 +13,10 @@ import {
   Clock,
   ClipboardList,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import api from "@/services/api";
 import { getImageUrl } from "@/utils/imageUrl";
+import { useAuth } from "@/context/AuthContext";
 import {
   message,
   Alert,
@@ -28,6 +29,9 @@ import {
   Avatar,
   Tag,
   Pagination,
+  Button,
+  Progress,
+  Empty,
 } from "antd";
 import {
   PieChart,
@@ -48,7 +52,122 @@ import Loader from "../../../../components/Common/Loader";
 const { Title, Text } = Typography;
 const { Option } = Select;
 
+// Promoter Module Task 10.2 — Promoter Home Dashboard. The rest of this file
+// (stats grid, enquiries, support tickets, lead-balance card) is the
+// Seller/Agent/Owner dashboard and is unrelated to the campaign model —
+// promoters get this separate view instead, at the same /seller/dashboard
+// route (Task 10.1's own architecture decision: extend the shared layout
+// rather than build a parallel /promoter/* route tree).
+const PromoterDashboard = ({ userName }) => {
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [projects, setProjects] = useState([]);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      try {
+        const res = await api.get("/properties/my-listings?limit=100");
+        setProjects(res.data?.properties || []);
+      } catch (err) {
+        console.error("Failed to load promoter dashboard:", err);
+        message.error("Failed to load your projects");
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  if (loading) {
+    return <Loader variant="panel" />;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <Title level={2} style={{ margin: 0 }} className="bg-clip-text text-transparent bg-linear-to-r from-blue-600 to-indigo-600">
+          Welcome back, {userName}!
+        </Title>
+        <Text type="secondary">Here's how your projects are doing.</Text>
+      </div>
+
+      <div>
+        <Text className="text-xs font-bold uppercase tracking-widest text-gray-400 block mb-4">
+          Your Projects
+        </Text>
+
+        {projects.length === 0 ? (
+          <Card className="shadow-sm border border-gray-200 rounded-2xl">
+            <Empty description="You haven't listed any projects yet">
+              <Button type="primary" onClick={() => navigate("/seller/add-property")}>
+                Add a Project
+              </Button>
+            </Empty>
+          </Card>
+        ) : (
+          <Row gutter={[20, 20]}>
+            {projects.map((project) => {
+              const percent = project.committedLeads > 0
+                ? Math.min(100, Math.round((project.deliveredLeads / project.committedLeads) * 100))
+                : 0;
+              return (
+                <Col xs={24} sm={12} lg={8} key={project._id}>
+                  <Card className="shadow-sm border border-gray-200 rounded-2xl h-full" styles={{ body: { padding: 20 } }}>
+                    <div className="flex justify-between items-start mb-1">
+                      <Text strong className="text-base text-gray-900">
+                        {project.basicInfo?.title || "Untitled Project"}
+                      </Text>
+                    </div>
+
+                    {project.isCampaignActive ? (
+                      <>
+                        <Tag color="blue" className="rounded-full px-3 mb-3">{project.campaignPlan} Plan</Tag>
+                        <div className="flex items-center justify-between text-sm mb-1">
+                          <span className="text-gray-500">
+                            Leads: {project.deliveredLeads} / {project.committedLeads}
+                          </span>
+                          <span className="font-semibold text-gray-700">{percent}%</span>
+                        </div>
+                        <Progress percent={percent} showInfo={false} strokeColor="#4f46e5" className="mb-3" />
+                        {project.newLeadsToday > 0 && (
+                          <Tag color="green" className="rounded-full px-2 mb-3">
+                            New today: {project.newLeadsToday}
+                          </Tag>
+                        )}
+                        <Button
+                          block
+                          onClick={() => navigate(`/seller/my-leads?projectId=${project._id}`)}
+                        >
+                          View Leads
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Text type="secondary" className="block mb-4">No active plan</Text>
+                        <Button
+                          type="primary"
+                          block
+                          onClick={() => navigate(`/seller/plans/select/${project._id}`)}
+                        >
+                          Buy a Plan
+                        </Button>
+                      </>
+                    )}
+                  </Card>
+                </Col>
+              );
+            })}
+          </Row>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const Dashboard = () => {
+  const { user } = useAuth();
+  const isPromoter = /Builder|Promoter/i.test(user?.businessType?.name || "");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [range, setRange] = useState("30d"); // 7d, 30d, 90d, all
@@ -72,6 +191,12 @@ const Dashboard = () => {
   const [supportTickets, setSupportTickets] = useState([]);
 
   useEffect(() => {
+    if (isPromoter) {
+      // Promoters get an entirely different dashboard (see PromoterDashboard
+      // above) — skip fetching Seller-only stats/support-ticket data.
+      setLoading(false);
+      return;
+    }
     const fetchData = async () => {
       setLoading(true);
       try {
@@ -91,7 +216,11 @@ const Dashboard = () => {
     };
 
     fetchData();
-  }, [range, refreshKey]);
+  }, [range, refreshKey, isPromoter]);
+
+  if (isPromoter) {
+    return <PromoterDashboard userName={user?.name || user?.fullName || "there"} />;
+  }
 
   if (loading && !data.summary.totalProperties) {
     return <Loader variant="panel" />;

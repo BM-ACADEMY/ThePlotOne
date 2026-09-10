@@ -16,6 +16,9 @@ const LeadsOverview = lazy(() => import("../pages/enquiries/LeadsOverview"));
 const Support = lazy(() => import("../pages/Support"));
 const Reviews = lazy(() => import("../../user/pages/reviews/Reviews"));
 const PropertyAnalytics = lazy(() => import("../pages/properties/PropertyAnalytics"));
+const SelectPlan = lazy(() => import("../../promoter/pages/plans/SelectPlan"));
+const CampaignBilling = lazy(() => import("../../promoter/pages/plans/Billing"));
+const MyLeads = lazy(() => import("../../promoter/pages/leads/MyLeads"));
 
 const PageLoader = () => <Loader variant="panel" />;
 
@@ -33,6 +36,10 @@ const SellerRoute = () => {
           <Route path="profile" element={<Profile />} />
           <Route path="enquiries" element={<SellerEnquiries />} />
           <Route path="upgrade-plan" element={<UpgradePlan />} />
+          <Route path="plans/select" element={<SelectPlan />} />
+          <Route path="plans/select/:projectId" element={<SelectPlan />} />
+          <Route path="plans/billing" element={<CampaignBilling />} />
+          <Route path="my-leads" element={<MyLeads />} />
           <Route path="payment-history" element={<SellerPaymentHistory />} />
           <Route path="leads-overview" element={<LeadsOverview />} />
           <Route path="support" element={<Support />} />

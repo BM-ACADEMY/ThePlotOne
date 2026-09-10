@@ -630,6 +630,7 @@ const Sidebar = ({ collapsed, setCollapsed, isMobile }) => {
       ),
       children: [
         { key: "/admin/subscription-plans", label: "Subscription Plans", onClick: () => handleMenuClick("/admin/subscription-plans") },
+        { key: "/admin/campaigns", label: "Campaign Management", onClick: () => handleMenuClick("/admin/campaigns") },
         { 
           key: "/admin/payment-history", 
           label: (

@@ -340,14 +340,10 @@ const SubscriptionPlanManager = () => {
             <Form.Item
               name="name"
               label="Plan Type (Internal)"
-              rules={[{ required: true }]}
-              tooltip="The internal name used for business logic (Lead priority, etc.)"
+              rules={[{ required: true, message: "Please enter an internal plan name" }]}
+              tooltip='Matched by substring in business logic — e.g. must contain "standard" for the old single-purchase Standard-plan rule, or "starter" for the Campaign starter-plan-once rule. Must be unique within this business type (e.g. starter-monthly, starter-quarterly).'
             >
-                <Select placeholder="Select plan type">
-                  <Select.Option value="Standard">Standard</Select.Option>
-                  <Select.Option value="Premium">Premium</Select.Option>
-                  <Select.Option value="Pro">Pro</Select.Option>
-                </Select>
+              <Input placeholder="e.g. starter-monthly, standard, pro-quarterly" />
             </Form.Item>
 
             <Form.Item
@@ -393,16 +389,16 @@ const SubscriptionPlanManager = () => {
 
             <Form.Item
               name="propertyLimit"
-              label="Property Limit (Use 0 or positive integers)"
+              label="Property Limit (-1 for unlimited, or 0/positive integers)"
               rules={[{ required: true }]}
             >
-              <InputNumber 
-                className="w-full" 
-                placeholder="3" 
-                min={0}
+              <InputNumber
+                className="w-full"
+                placeholder="3"
+                min={-1}
                 precision={0}
                 onKeyPress={(e) => {
-                  if (!/[0-9]/.test(e.key)) {
+                  if (!/[0-9-]/.test(e.key)) {
                     e.preventDefault();
                   }
                 }}
@@ -414,10 +410,28 @@ const SubscriptionPlanManager = () => {
               label="Lead Share Count"
               rules={[{ required: true, message: "Please enter lead share count" }]}
             >
-              <InputNumber 
-                className="w-full" 
-                placeholder="2" 
+              <InputNumber
+                className="w-full"
+                placeholder="2"
                 min={1}
+                precision={0}
+                onKeyPress={(e) => {
+                  if (!/[0-9]/.test(e.key)) {
+                    e.preventDefault();
+                  }
+                }}
+              />
+            </Form.Item>
+
+            <Form.Item
+              name="committedMinimum"
+              label="Committed Minimum Leads (Campaign plans only)"
+              tooltip="Guaranteed lead count for a Campaign plan — e.g. 22/50/85 for Starter/Growth/Pro. Leave 0 for non-campaign plans."
+            >
+              <InputNumber
+                className="w-full"
+                placeholder="0"
+                min={0}
                 precision={0}
                 onKeyPress={(e) => {
                   if (!/[0-9]/.test(e.key)) {

@@ -249,7 +249,29 @@ const propertySchema = new mongoose.Schema(
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User"
-    }
+    },
+
+    // =====================================================
+    // 🔟 CAMPAIGN
+    // =====================================================
+    isCampaignActive: {
+      type: Boolean,
+      default: false
+    },
+    activeCampaign: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Campaign"
+    },
+    committedLeads: {
+      type: Number,
+      default: 0
+    },
+    deliveredLeads: {
+      type: Number,
+      default: 0
+    },
+    totalUnits: Number,
+    availableUnits: Number
   },
   {
     timestamps: true

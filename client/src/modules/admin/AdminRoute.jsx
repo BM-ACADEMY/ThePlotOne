@@ -33,6 +33,9 @@ const SubscriptionPlanManager = lazy(() => import("./pages/SubscriptionPlanManag
 const PaymentHistory = lazy(() => import("./pages/PaymentHistory"));
 const SupportManagement = lazy(() => import("./pages/SupportManagement"));
 const CouponManager = lazy(() => import("./pages/CouponManager"));
+const CampaignManagement = lazy(() => import("./pages/CampaignManagement"));
+const CampaignDetail = lazy(() => import("./pages/CampaignDetail"));
+const ImportLeads = lazy(() => import("./pages/campaigns/ImportLeads"));
 
 const PageLoader = () => <Loader variant="panel" />;
 
@@ -75,6 +78,9 @@ const AdminRoute = () => {
           <Route path="subscription-plans" element={<SubscriptionPlanManager />} />
           <Route path="payment-history" element={<PaymentHistory />} />
           <Route path="coupons" element={<CouponManager />} />
+          <Route path="campaigns" element={<CampaignManagement />} />
+          <Route path="campaigns/:id" element={<CampaignDetail />} />
+          <Route path="campaigns/:id/import-leads" element={<ImportLeads />} />
 
           <Route path="support" element={<SupportManagement />} />
 

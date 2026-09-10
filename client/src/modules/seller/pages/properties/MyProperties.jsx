@@ -174,9 +174,13 @@ const MyProperties = () => {
   const fetchProperties = React.useCallback(async () => {
     setLoading(true);
     try {
-      const response = await api.get(
-        `/properties/fetch-all-property?limit=100&seller_id=${user._id}`,
-      );
+      const isPromoterUser = /Builder|Promoter/i.test(user?.businessType?.name || "");
+      // Promoters use the campaign-aware endpoint (isCampaignActive, campaignPlan,
+      // committedLeads, deliveredLeads, remainingLeads per listing) — Task 3.3.
+      const endpoint = isPromoterUser
+        ? `/properties/my-listings?limit=100`
+        : `/properties/fetch-all-property?limit=100&seller_id=${user._id}`;
+      const response = await api.get(endpoint);
 
       if (response.data && response.data.properties) {
         setProperties(response.data.properties);
@@ -360,9 +364,15 @@ const MyProperties = () => {
   const planName = isPlanExpired ? "PLAN EXPIRED" : (activePlan?.displayName || activePlan?.name || "FREE");
   const internalPlanName = activePlan?.name || "FREE";
 
+  // Promoters (Builder businessType): listings are free/unlimited, campaigns are the
+  // paid/metered unit instead. No subscription banner, no listing-limit counter,
+  // no per-listing expiry countdown — see Promoter Module Plan Tasks 3.1/3.2/3.5.
+  const isPromoter = /Builder|Promoter/i.test(user?.businessType?.name || "");
+
   return (
     <div className="space-y-3 md:space-y-4">
-      {/* Subscription Banner */}
+      {/* Subscription Banner — promoters don't have a listing subscription/limit, campaigns are separate */}
+      {!isPromoter && (
      <div className="relative rounded-3xl p-[1px] ">
   <div className="bg-white rounded-3xl p-5 md:p-6 flex flex-col md:flex-row justify-between items-center gap-6">
 
@@ -430,6 +440,7 @@ const MyProperties = () => {
     </div>
   </div>
 </div>
+      )}
       {/* Header & Add Button */}
       <div className="flex flex-col md:flex-row justify-between items-center gap-4">
         <div>
@@ -542,17 +553,20 @@ const MyProperties = () => {
                       </div>
                     )}
                   </div>
-                  <div className="scale-90 origin-bottom-right">
-                    <CountdownTimer
-                      createdAt={property.createdAt}
-                      approvedAt={property.approvedAt}
-                      status={property.status}
-                      isAdmin={
-                        user?.role_id?.role_name?.toUpperCase() === "ADMIN" ||
-                        user?.role?.name?.toUpperCase() === "ADMIN"
-                      }
-                    />
-                  </div>
+                  {/* Promoter listings never expire (Task 3.2) — countdown would be misleading */}
+                  {!isPromoter && (
+                    <div className="scale-90 origin-bottom-right">
+                      <CountdownTimer
+                        createdAt={property.createdAt}
+                        approvedAt={property.approvedAt}
+                        status={property.status}
+                        isAdmin={
+                          user?.role_id?.role_name?.toUpperCase() === "ADMIN" ||
+                          user?.role?.name?.toUpperCase() === "ADMIN"
+                        }
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* Gradient Overlay for better contrast */}
@@ -573,24 +587,112 @@ const MyProperties = () => {
                   </div>
                 </div>
 
-                <div className="mb-6 flex items-center">
-                  <div className="bg-white py-2 flex items-center gap-1">
-                    <span className="text-xl font-medium text-gray-900 leading-none">
-                      {formatPriceRange(
-                        property.pricing?.sell?.minPrice ||
-                          property.pricing?.rent?.minRent,
-                        property.pricing?.sell?.maxPrice ||
-                          property.pricing?.rent?.maxRent,
-                        property.pricing?.sell?.price ||
-                          property.pricing?.rent?.monthlyRent ||
-                          0,
-                      )}
-                    </span>
+                {isPromoter ? (
+                  /* Campaign status strip (Promoter Module Task 3.5 mockup, Task 5.4 lead-count display) */
+                  <div className="mb-6">
+                    {property.isCampaignActive ? (() => {
+                      const committed = property.committedLeads || 0;
+                      const delivered = property.deliveredLeads || 0;
+                      const leadsPercent = committed ? Math.min(100, Math.round((delivered / committed) * 100)) : 0;
+                      const isLimitReached = committed > 0 && delivered >= committed;
+
+                      return (
+                        <div>
+                          <div className="flex items-center justify-between text-sm mb-1.5">
+                            <span className="font-semibold text-gray-800">
+                              Plan: {property.campaignPlan || "Active"}
+                            </span>
+                            <span className={isLimitReached ? "text-rose-600 font-semibold" : "text-gray-500"}>
+                              Leads: {delivered} / {committed} · {leadsPercent}%
+                              {isLimitReached && " — Limit Reached"}
+                            </span>
+                          </div>
+                          <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${isLimitReached ? "bg-rose-500" : "bg-indigo-600"}`}
+                              style={{ width: `${leadsPercent}%` }}
+                            />
+                          </div>
+                          {property.daysRemaining !== null && property.daysRemaining !== undefined && (
+                            <div className="text-xs text-gray-400 mt-1.5">
+                              Days remaining: {property.daysRemaining}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })() : (
+                      <span className="text-sm font-medium text-gray-400">
+                        No Active Plan
+                      </span>
+                    )}
                   </div>
-                </div>
+                ) : (
+                  <div className="mb-6 flex items-center">
+                    <div className="bg-white py-2 flex items-center gap-1">
+                      <span className="text-xl font-medium text-gray-900 leading-none">
+                        {formatPriceRange(
+                          property.pricing?.sell?.minPrice ||
+                            property.pricing?.rent?.minRent,
+                          property.pricing?.sell?.maxPrice ||
+                            property.pricing?.rent?.maxRent,
+                          property.pricing?.sell?.price ||
+                            property.pricing?.rent?.monthlyRent ||
+                            0,
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                )}
 
                 {/* Management Actions */}
                 <div className="mt-auto space-y-3 pt-5 border-t border-gray-200">
+                  {isPromoter ? (
+                    /* [View Leads] [Edit] [Mark Sold Out] — or [View Project] [Edit] [Buy a Plan] when no active plan */
+                    <div className="grid grid-cols-3 gap-2">
+                      <Button
+                        block
+                        onClick={() =>
+                          property.isCampaignActive
+                            ? navigate(`/seller/my-leads?projectId=${property._id}`)
+                            : handleViewDetail(property)
+                        }
+                        className="h-10 rounded-none text-xs font-medium border-gray-100 text-gray-600 hover:text-blue-600 hover:border-blue-600 bg-gray-50/50 hover:bg-blue-50 transition-all flex items-center justify-center"
+                      >
+                        {property.isCampaignActive ? "View Leads" : "View Project"}
+                      </Button>
+                      <Button
+                        block
+                        onClick={() =>
+                          navigate(`/seller/add-property?edit=${property._id}`)
+                        }
+                        className="h-10 rounded-none text-xs font-medium border-gray-100 text-gray-600 hover:text-orange-600 hover:border-orange-600 bg-gray-50/50 hover:bg-orange-50 transition-all flex items-center justify-center"
+                      >
+                        Edit
+                      </Button>
+                      {property.isCampaignActive ? (
+                        <Button
+                          block
+                          onClick={() => handleMarkAsSoldClick(property)}
+                          className={`h-10 rounded-none text-xs font-medium border-none shadow-sm transition-all flex items-center justify-center ${
+                            property.isSold
+                              ? "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+                              : "bg-rose-50 text-rose-600 hover:bg-rose-100"
+                          }`}
+                        >
+                          {property.isSold ? "Available" : "Mark Sold Out"}
+                        </Button>
+                      ) : (
+                        <Button
+                          block
+                          onClick={() => navigate(`/seller/plans/select/${property._id}`)}
+                          className="h-10 rounded-none text-xs font-medium border-none shadow-sm transition-all flex items-center justify-center bg-indigo-600 text-white hover:bg-indigo-700"
+                        >
+                          Buy a Plan
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    <>
                   {/* Primary Actions */}
                   <div className="grid grid-cols-2 gap-3">
                     <Button
@@ -667,6 +769,8 @@ const MyProperties = () => {
                       {property.isSold ? "Available" : "Mark Sold"}
                     </Button>
                   </div>
+                  </>
+                  )}
 
                   {/* Delete Action */}
                   <Popconfirm

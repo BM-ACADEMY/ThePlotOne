@@ -3,6 +3,8 @@ const Subscription = require("../models/Subscription");
 const Requirement = require("../models/Requirement");
 const User = require("../models/User");
 const SubscriptionPlan = require("../models/SubscriptionPlan");
+const Property = require("../models/Property");
+const { writeAudit } = require("../utils/auditLogger");
 
 // Get leads shared with the seller's current plan
 exports.getSharedLeads = async (req, res) => {
@@ -393,5 +395,182 @@ exports.updateLeadStatus = async (req, res) => {
       success: false,
       message: "Server Error: Could not update status.",
     });
+  }
+};
+
+// ============================================================
+// MY LEADS (Promoter) — Promoter Module Task 5.1
+// GET /api/leads/my-leads
+// Distinct from getSharedLeads above (the legacy Agent/Builder shared-lead
+// broadcast system). This returns leads matched directly to the promoter's
+// own projects via Requirement.matchedProject — campaign-delivered leads,
+// not the SharedLead pool.
+// ============================================================
+exports.getMyLeads = async (req, res) => {
+  try {
+    const { projectId, status, dateFrom, dateTo, page = 1, limit = 20 } = req.query;
+    const promoterId = req.user._id;
+
+    const ownedProjectIds = (
+      await Property.find({ seller: promoterId }).distinct("_id")
+    ).map((id) => String(id));
+
+    const query = { matchedProject: { $in: ownedProjectIds } };
+
+    if (projectId) {
+      if (!ownedProjectIds.includes(String(projectId))) {
+        return res.status(403).json({
+          success: false,
+          message: "Project not found or does not belong to you",
+        });
+      }
+      query.matchedProject = projectId;
+    }
+
+    // Date Range filter (My Leads page, Task 5.3) — filters on deliveredAt
+    if (dateFrom || dateTo) {
+      query.deliveredAt = {};
+      if (dateFrom) query.deliveredAt.$gte = new Date(dateFrom);
+      if (dateTo) query.deliveredAt.$lte = new Date(dateTo);
+    }
+
+    if (status) {
+      query.promoterStatus = status;
+    }
+
+    const [leads, total] = await Promise.all([
+      Requirement.find(query)
+        .populate("matchedProject", "basicInfo.title location.locality")
+        .sort({ deliveredAt: -1, createdAt: -1 })
+        .limit(limit * 1)
+        .skip((page - 1) * limit),
+      Requirement.countDocuments(query),
+    ]);
+
+    const formatted = leads.map((lead) => ({
+      _id: lead._id,
+      fullName: lead.fullName,
+      phoneNumber: lead.phoneNumber,
+      email: lead.email,
+      preferredLocation: lead.preferredLocation,
+      minBudget: lead.minBudget,
+      maxBudget: lead.maxBudget,
+      propertyType: lead.propertyType,
+      usageType: lead.usageType,
+      message: lead.message,
+      source: lead.source,
+      tier: lead.tier,
+      deliveredAt: lead.deliveredAt,
+      promoterStatus: lead.promoterStatus,
+      promoterNotes: lead.promoterNotes,
+      matchedProject: lead.matchedProject
+        ? {
+            title: lead.matchedProject.basicInfo?.title,
+            locality: lead.matchedProject.location?.locality,
+          }
+        : null,
+    }));
+
+    res.json({
+      success: true,
+      leads: formatted,
+      totalPages: Math.ceil(total / limit),
+      currentPage: Number(page),
+      total,
+    });
+  } catch (error) {
+    console.error("Get My Leads Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ============================================================
+// UPDATE MY LEAD STATUS (Promoter) — Promoter Module Task 5.2
+// PUT /api/leads/:leadId/status
+// Named updateMyLeadStatus (not updateLeadStatus) to avoid overwriting the
+// legacy SharedLead export of that name already in this file.
+// ============================================================
+const LEAD_STATUS_TRANSITIONS = {
+  pending: ["contacted"],
+  contacted: ["site_visit_scheduled", "not_interested"],
+  site_visit_scheduled: ["visited"],
+  visited: ["interested", "not_interested"],
+  interested: ["closed_won"],
+  not_interested: ["closed_lost"],
+  closed_won: [],
+  closed_lost: [],
+};
+
+exports.updateMyLeadStatus = async (req, res) => {
+  try {
+    const { leadId } = req.params;
+    const { promoterStatus, promoterNotes } = req.body;
+    const promoterId = req.user._id;
+
+    const allowedStatuses = Object.keys(LEAD_STATUS_TRANSITIONS);
+    if (!promoterStatus || !allowedStatuses.includes(promoterStatus)) {
+      return res.status(400).json({ success: false, message: "Invalid or missing promoterStatus" });
+    }
+
+    const lead = await Requirement.findById(leadId);
+    if (!lead) {
+      return res.status(404).json({ success: false, message: "Lead not found" });
+    }
+
+    // Lead must belong to this promoter's project
+    if (!lead.matchedProject) {
+      return res.status(403).json({ success: false, message: "This lead is not assigned to any of your projects" });
+    }
+    const ownsProject = await Property.exists({ _id: lead.matchedProject, seller: promoterId });
+    if (!ownsProject) {
+      return res.status(403).json({ success: false, message: "This lead does not belong to your project" });
+    }
+
+    const currentStatus = lead.promoterStatus || "pending";
+
+    // Re-saving the same status is allowed (note-only update); any other
+    // change must follow the transition map.
+    if (promoterStatus !== currentStatus) {
+      const allowedNext = LEAD_STATUS_TRANSITIONS[currentStatus] || [];
+      if (!allowedNext.includes(promoterStatus)) {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot move from '${currentStatus}' to '${promoterStatus}'. Allowed next: ${allowedNext.join(", ") || "none (terminal status)"}`,
+        });
+      }
+    }
+
+    const before = { promoterStatus: lead.promoterStatus, promoterNotes: lead.promoterNotes };
+
+    lead.promoterStatus = promoterStatus;
+    if (promoterNotes !== undefined) {
+      lead.promoterNotes = promoterNotes;
+    }
+    lead.promoterStatusUpdatedAt = new Date();
+    await lead.save();
+
+    await writeAudit({
+      actor: promoterId,
+      actorRole: "promoter",
+      action: "LEAD_STATUS_UPDATED",
+      entity: "Requirement",
+      entityId: lead._id,
+      before,
+      after: { promoterStatus: lead.promoterStatus, promoterNotes: lead.promoterNotes },
+      reason: `Promoter updated lead status to '${promoterStatus}'`,
+    });
+
+    res.json({
+      success: true,
+      lead: {
+        _id: lead._id,
+        promoterStatus: lead.promoterStatus,
+        promoterNotes: lead.promoterNotes,
+        promoterStatusUpdatedAt: lead.promoterStatusUpdatedAt,
+      },
+    });
+  } catch (error) {
+    console.error("Update My Lead Status Error:", error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };

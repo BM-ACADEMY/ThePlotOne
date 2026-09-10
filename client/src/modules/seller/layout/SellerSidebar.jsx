@@ -384,6 +384,12 @@ const SellerSidebar = ({ collapsed, setCollapsed, isMobile }) => {
   };
   // ────────────────────────────────────────────────────
 
+  // Builders/Promoters use the campaign-specific /seller/plans/billing page
+  // (one promoter can have multiple active campaigns — the legacy
+  // /seller/payment-history page below is account-level and predates the
+  // Campaign feature; it stays exactly as-is for Seller/Agent/Owner).
+  const isPromoter = /Builder|Promoter/i.test(user?.businessType?.name || "");
+
   /* Derive initials and display name from auth user */
   const displayName = user?.name || user?.fullName || "Seller";
   const displayRole = user?.role
@@ -397,6 +403,12 @@ const SellerSidebar = ({ collapsed, setCollapsed, isMobile }) => {
     .toUpperCase();
 
   /* ── Menu definitions ───────────────────────────── */
+  // Promoter Module Task 10.1 — the promoter's nav is intentionally a
+  // trimmed, campaign-hidden list (My Projects / My Leads / Plans & Billing /
+  // Profile / Notifications / Logout). Enquiry Property and Leads Overview
+  // are the legacy per-lead-credit "enquiries" subsystem (pages/enquiries/*)
+  // that the campaign model replaces with My Leads — hidden for promoters
+  // only; Seller/Agent/Owner keep them exactly as before.
   const mainItems = [
     {
       key: "/seller/dashboard",
@@ -407,29 +419,35 @@ const SellerSidebar = ({ collapsed, setCollapsed, isMobile }) => {
     {
       key: "properties",
       icon: <Building size={18} />,
-      label: "Properties",
+      label: isPromoter ? "My Projects" : "Properties",
       hasChildren: true,
       children: [
         {
           key: "/seller/my-properties",
-          label: "My Properties",
+          label: isPromoter ? "My Projects" : "My Properties",
           onClick: () => handleMenuClick("/seller/my-properties"),
         },
         {
           key: "/seller/add-property",
-          label: "Add Property",
+          label: isPromoter ? "Add Project" : "Add Property",
           onClick: () => handleMenuClick("/seller/add-property"),
         },
       ],
     },
-    {
+    isPromoter && {
+      key: "/seller/my-leads",
+      icon: <ClipboardList size={18} />,
+      label: "My Leads",
+      onClick: () => handleMenuClick("/seller/my-leads"),
+    },
+    !isPromoter && {
       key: "/seller/enquiries",
       icon: <MessageSquare size={18} />,
       label: "Enquiry Property",
       locked: !hasActivePlan,
       onClick: () => handleMenuClick("/seller/enquiries"),
     },
-    {
+    !isPromoter && {
       key: "/seller/leads-overview",
       icon: <ClipboardList size={18} />,
       label: "Leads Overview",
@@ -442,26 +460,33 @@ const SellerSidebar = ({ collapsed, setCollapsed, isMobile }) => {
         }
       },
     },
-    {
-      key: "/seller/payment-history",
-      icon: <CreditCard size={18} />,
-      label: "Payment History",
-      locked: !hasHistory,
-      onClick: () => {
-        if (!hasHistory) {
-          message.warning("Please upgrade your plan to access payment history");
-        } else {
-          handleMenuClick("/seller/payment-history");
+    isPromoter
+      ? {
+          key: "/seller/plans/billing",
+          icon: <CreditCard size={18} />,
+          label: "Plans & Billing",
+          onClick: () => handleMenuClick("/seller/plans/billing"),
         }
-      },
-    },
+      : {
+          key: "/seller/payment-history",
+          icon: <CreditCard size={18} />,
+          label: "Payment History",
+          locked: !hasHistory,
+          onClick: () => {
+            if (!hasHistory) {
+              message.warning("Please upgrade your plan to access payment history");
+            } else {
+              handleMenuClick("/seller/payment-history");
+            }
+          },
+        },
     {
       key: "/seller/support",
       icon: <Headphones size={18} />,
       label: "Support Team",
       onClick: () => handleMenuClick("/seller/support"),
     },
-  ];
+  ].filter(Boolean);
 
   const otherItems = [
     {

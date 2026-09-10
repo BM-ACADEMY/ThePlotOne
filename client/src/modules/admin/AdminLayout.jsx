@@ -12,7 +12,8 @@ import {
   theme,
   Tag,
 } from "antd";
-import { AlertCircle, Clock, MessageSquare } from "lucide-react";
+import { AlertCircle, Clock, MessageSquare, BellRing } from "lucide-react";
+import moment from "moment";
 
 import { useAuth } from "../../context/AuthContext";
 import Sidebar from "./Sidebar";
@@ -29,6 +30,12 @@ const AdminLayout = () => {
   const [pendingCount, setPendingCount] = useState(0);
   const [expiringCount, setExpiringCount] = useState(0);
   const [supportCount, setSupportCount] = useState(0);
+
+  // Portal notifications (Notification model) — Module 6 admin-facing types:
+  // campaign_activation_required (6.4), admin_lead_limit (6.3). Distinct from
+  // the expiringCount/supportCount blocks above, which stay untouched.
+  const [portalNotifications, setPortalNotifications] = useState([]);
+  const [portalUnreadCount, setPortalUnreadCount] = useState(0);
 
   const [isNotificationsCleared, setIsNotificationsCleared] = useState(() => {
     return localStorage.getItem("admin_notifications_cleared") === "true";
@@ -76,6 +83,20 @@ const AdminLayout = () => {
     };
     fetchExpiringCount();
 
+    // Portal notifications — same endpoints NotificationBell.jsx uses for
+    // promoters. No socket channel wired for these yet, so it's polled here
+    // alongside the other header counts.
+    const fetchPortalNotifications = async () => {
+      try {
+        const res = await api.get("/portal-notifications");
+        setPortalNotifications(res.data?.notifications || []);
+        setPortalUnreadCount(res.data?.unreadCount || 0);
+      } catch (error) {
+        console.error("Error fetching portal notifications:", error);
+      }
+    };
+    fetchPortalNotifications();
+
     if (socket) {
       socket.on("new-property-listed", fetchPendingCount);
       
@@ -100,6 +121,7 @@ const AdminLayout = () => {
     const interval = setInterval(() => {
       fetchPendingCount();
       fetchExpiringCount();
+      fetchPortalNotifications();
     }, 60000);
     return () => clearInterval(interval);
   }, [socket, pathname]);
@@ -111,6 +133,32 @@ const AdminLayout = () => {
       setSupportCount(0);
     }
   }, [pathname]);
+
+  const handleOpenPortalNotification = async (notification) => {
+    if (!notification.isRead) {
+      try {
+        await api.put(`/portal-notifications/${notification._id}/read`);
+        setPortalUnreadCount((prev) => Math.max(0, prev - 1));
+        setPortalNotifications((prev) =>
+          prev.map((n) => (n._id === notification._id ? { ...n, isRead: true } : n)),
+        );
+      } catch (error) {
+        console.error("Failed to mark notification read:", error);
+      }
+    }
+    if (notification.link) navigate(notification.link);
+  };
+
+  const handleMarkAllPortalRead = async (e) => {
+    e.stopPropagation();
+    try {
+      await api.put("/portal-notifications/read-all");
+      setPortalUnreadCount(0);
+      setPortalNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    } catch (error) {
+      console.error("Failed to mark all read:", error);
+    }
+  };
 
   // Handle mobile responsiveness
   useEffect(() => {
@@ -204,19 +252,29 @@ const AdminLayout = () => {
       label: (
         <div className="px-3 py-2 border-b border-gray-100 mb-1 flex justify-between items-center">
           <span className="font-bold text-gray-800 text-xs uppercase tracking-wider">Notifications</span>
-          {expiringCount > 0 && !isNotificationsCleared && (
-            <span 
-              className="text-[10px] font-bold text-red-500 hover:text-red-600 cursor-pointer uppercase tracking-tight"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsNotificationsCleared(true);
-                localStorage.setItem("admin_notifications_cleared", "true");
-                localStorage.setItem("admin_notifications_last_count", expiringCount.toString());
-              }}
-            >
-              Clear All
-            </span>
-          )}
+          <div className="flex items-center gap-3">
+            {portalUnreadCount > 0 && (
+              <span
+                className="text-[10px] font-bold text-indigo-500 hover:text-indigo-600 cursor-pointer uppercase tracking-tight"
+                onClick={handleMarkAllPortalRead}
+              >
+                Mark All Read
+              </span>
+            )}
+            {expiringCount > 0 && !isNotificationsCleared && (
+              <span
+                className="text-[10px] font-bold text-red-500 hover:text-red-600 cursor-pointer uppercase tracking-tight"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsNotificationsCleared(true);
+                  localStorage.setItem("admin_notifications_cleared", "true");
+                  localStorage.setItem("admin_notifications_last_count", expiringCount.toString());
+                }}
+              >
+                Clear All
+              </span>
+            )}
+          </div>
         </div>
       ),
     },
@@ -265,7 +323,30 @@ const AdminLayout = () => {
         icon: <MessageSquare size={16} className="text-blue-500" />,
       }
     ] : []),
-    ...(expiringCount === 0 && supportCount === 0 ? [
+    ...(portalNotifications.length > 0
+      ? portalNotifications.slice(0, 5).map((n) => ({
+          key: `portal-${n._id}`,
+          label: (
+            <div
+              className="flex flex-col gap-1 py-1"
+              onClick={() => handleOpenPortalNotification(n)}
+            >
+              <div className="flex items-center gap-2">
+                <Tag color="purple" className="m-0 text-[10px] px-1.5 font-bold border-none uppercase">
+                  Campaign
+                </Tag>
+                <span className={`text-[12px] text-gray-700 ${!n.isRead ? "font-bold" : "font-semibold"}`}>
+                  {n.title}
+                </span>
+              </div>
+              <span className="text-[11px] text-gray-400">{n.message}</span>
+              <span className="text-[10px] text-gray-300">{moment(n.createdAt).fromNow()}</span>
+            </div>
+          ),
+          icon: <BellRing size={16} className="text-indigo-500" />,
+        }))
+      : []),
+    ...(expiringCount === 0 && supportCount === 0 && portalNotifications.length === 0 ? [
       {
         key: 'empty',
         label: (
@@ -340,7 +421,12 @@ const AdminLayout = () => {
           <div className="flex items-center gap-6">
 
 
-            <Badge count={supportCount + (isNotificationsCleared ? 0 : expiringCount)} size="small" offset={[-2, 2]} color="#7c3aed">
+            <Badge
+              count={supportCount + (isNotificationsCleared ? 0 : expiringCount) + portalUnreadCount}
+              size="small"
+              offset={[-2, 2]}
+              color="#7c3aed"
+            >
               <Dropdown
                 menu={{ items: notificationItems }}
                 trigger={["click"]}
@@ -351,8 +437,21 @@ const AdminLayout = () => {
                 <Button
                   type="text"
                   shape="circle"
-                  icon={<Bell size={24} className={(supportCount > 0 || (expiringCount > 0 && !isNotificationsCleared)) ? "text-amber-500 bell-ringing" : ""} />}
-                  title={(supportCount + expiringCount) > 0 ? `${supportCount + expiringCount} Notifications` : "No Notifications"}
+                  icon={
+                    <Bell
+                      size={24}
+                      className={
+                        supportCount > 0 || (expiringCount > 0 && !isNotificationsCleared) || portalUnreadCount > 0
+                          ? "text-amber-500 bell-ringing"
+                          : ""
+                      }
+                    />
+                  }
+                  title={
+                    supportCount + expiringCount + portalUnreadCount > 0
+                      ? `${supportCount + expiringCount + portalUnreadCount} Notifications`
+                      : "No Notifications"
+                  }
                 />
               </Dropdown>
             </Badge>

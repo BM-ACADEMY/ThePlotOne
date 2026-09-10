@@ -54,6 +54,9 @@ router.get("/suggestions", propertyController.getSuggestions);
 // Get Seller Stats (Protected)
 router.get("/seller-stats", protect, propertyController.getSellerStats);
 
+// Get logged-in promoter's own listings with campaign status (Promoter Module Task 3.3)
+router.get("/my-listings", protect, propertyController.getMyListings);
+
 // Update a property view count (Admin only)
 router.put("/update-view-count/:id", protect, propertyController.updateViewCount);
 
