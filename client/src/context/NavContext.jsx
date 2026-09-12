@@ -23,9 +23,9 @@ export const NavProvider = ({ children }) => {
                     axios.get(`${import.meta.env.VITE_API_URL}/property-types?status=active`)
                 ]);
 
-                setBusinessTypes(businessRes.data);
+                setBusinessTypes(Array.isArray(businessRes.data) ? businessRes.data : []);
                 setPropertyCategories(filtersRes.data.categories || []);
-                setPropertyTypes(typesRes.data);
+                setPropertyTypes(Array.isArray(typesRes.data) ? typesRes.data : []);
                 setLocations(filtersRes.data.locations || []);
                 setApprovalTypes(filtersRes.data.approvals || []);
                 setPriceRanges(filtersRes.data.priceRanges || []);
