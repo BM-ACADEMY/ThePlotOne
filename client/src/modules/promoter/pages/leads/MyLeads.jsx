@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { Select, DatePicker, Card, Tag, Button, Modal, Input, message, Spin, Empty, Pagination } from "antd";
-import { MapPin, IndianRupee, Home, Phone, Mail, StickyNote } from "lucide-react";
+import { MapPin, IndianRupee, Home, Phone, Mail, StickyNote, ShieldAlert } from "lucide-react";
 import api from "@/services/api";
 import moment from "moment";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
 
 const { RangePicker } = DatePicker;
 
@@ -38,6 +39,13 @@ const formatBudget = (min, max) => {
 };
 
 const MyLeads = () => {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  // T-102 fix — same reasoning as SelectPlan.jsx/Billing.jsx: /leads/my-leads
+  // is promoter-only (isPromoter middleware), and an unguarded 403 was
+  // rendering as this page's own "No leads found" empty state for non-promoters.
+  const isPromoter = /Builder|Promoter/i.test(user?.businessType?.name || "");
+
   const [leads, setLeads] = useState([]);
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -56,13 +64,18 @@ const MyLeads = () => {
   const [savingNotes, setSavingNotes] = useState(false);
 
   useEffect(() => {
+    if (!isPromoter) return;
     api
       .get("/properties/my-listings?limit=100")
       .then((res) => setProjects(res.data?.properties || []))
       .catch((err) => console.error("Failed to load projects:", err));
-  }, []);
+  }, [isPromoter]);
 
   const fetchLeads = useCallback(async () => {
+    if (!isPromoter) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const params = { page, limit: pageSize };
@@ -80,7 +93,7 @@ const MyLeads = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, projectFilter, statusFilter, dateRange]);
+  }, [page, pageSize, projectFilter, statusFilter, dateRange, isPromoter]);
 
   useEffect(() => {
     fetchLeads();
@@ -127,6 +140,23 @@ const MyLeads = () => {
       setSavingNotes(false);
     }
   };
+
+  if (!isPromoter) {
+    return (
+      <div className="max-w-5xl mx-auto py-8 px-4">
+        <div className="text-center py-16 bg-white rounded-2xl border border-gray-100">
+          <ShieldAlert size={48} className="mx-auto mb-3 text-gray-300" />
+          <h2 className="text-lg font-semibold text-gray-700 mb-1">Not available for your account</h2>
+          <p className="text-gray-500 max-w-sm mx-auto">
+            Campaign leads are only available for Builder/Promoter accounts.
+          </p>
+          <Button type="primary" className="mt-4" onClick={() => navigate("/seller/dashboard")}>
+            Back to Dashboard
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-5xl mx-auto py-8 px-4">

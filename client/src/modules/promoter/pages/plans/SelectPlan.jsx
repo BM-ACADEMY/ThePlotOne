@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Steps, Button, Card, message, Spin, Input } from "antd";
-import { Building, IndianRupee, Lock, CheckCircle2, Tag as TagIcon, X } from "lucide-react";
+import { Building, IndianRupee, Lock, CheckCircle2, Tag as TagIcon, X, ShieldAlert } from "lucide-react";
 import api from "@/services/api";
 import { useNavigate, useParams } from "react-router-dom";
 import { getImageUrl } from "@/utils/imageUrl";
@@ -27,6 +27,13 @@ const SelectPlan = () => {
   const { projectId: projectIdFromRoute } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  // T-102 fix — this page's entire flow depends on promoter-only APIs
+  // (/campaigns/my-campaign-status, /campaigns/create-order, etc.). Without
+  // this check, a non-promoter's fetch 403s, and the resulting empty
+  // `projects` array was rendering the "no projects yet, Add a Project"
+  // empty state — misleading, since that state means something specific for
+  // an actual promoter and nothing for a Seller/Agent/Owner.
+  const isPromoter = /Builder|Promoter/i.test(user?.businessType?.name || "");
 
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -53,6 +60,13 @@ const SelectPlan = () => {
   const [appliedCoupon, setAppliedCoupon] = useState(null); // { code, discountType, discountValue }
 
   useEffect(() => {
+    if (!isPromoter) {
+      // Never call the promoter-only endpoints for a non-promoter — avoids
+      // the 403 (and the misleading fallback UI it caused) entirely, rather
+      // than reacting to it after the fact.
+      setLoading(false);
+      return;
+    }
     const load = async () => {
       setLoading(true);
       try {
@@ -86,7 +100,7 @@ const SelectPlan = () => {
       }
     };
     load();
-  }, [projectIdFromRoute]);
+  }, [projectIdFromRoute, isPromoter]);
 
   const { nextCampaignPosition, isBlocked, discountPercent, activeCampaignCount } = campaignStatus;
 
@@ -239,6 +253,23 @@ const SelectPlan = () => {
     return (
       <div className="flex justify-center items-center h-64">
         <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (!isPromoter) {
+    return (
+      <div className="max-w-4xl mx-auto py-8 px-4">
+        <div className="text-center py-16 bg-white rounded-2xl border border-gray-100">
+          <ShieldAlert size={48} className="mx-auto mb-3 text-gray-300" />
+          <h2 className="text-lg font-semibold text-gray-700 mb-1">Not available for your account</h2>
+          <p className="text-gray-500 max-w-sm mx-auto">
+            Campaign plans are only available for Builder/Promoter accounts.
+          </p>
+          <Button type="primary" className="mt-4" onClick={() => navigate("/seller/dashboard")}>
+            Back to Dashboard
+          </Button>
+        </div>
       </div>
     );
   }

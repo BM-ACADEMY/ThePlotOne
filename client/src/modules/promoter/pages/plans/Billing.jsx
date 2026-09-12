@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import { Card, Table, Tag, Button, message, Spin, Empty } from "antd";
-import { IndianRupee, FileDown, Building } from "lucide-react";
+import { IndianRupee, FileDown, Building, ShieldAlert } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import api from "@/services/api";
 import moment from "moment";
+import { useAuth } from "@/context/AuthContext";
 
 const CAMPAIGN_STATUS_LABEL = {
   draft: "Draft",
@@ -23,11 +25,22 @@ const CAMPAIGN_STATUS_COLOR = {
 };
 
 const Billing = () => {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  // T-102 fix — same reasoning as SelectPlan.jsx: /campaigns/my-billing is
+  // promoter-only, and an unguarded 403 was rendering as this page's own
+  // "No active campaign plans yet" empty state for non-promoters.
+  const isPromoter = /Builder|Promoter/i.test(user?.businessType?.name || "");
+
   const [loading, setLoading] = useState(true);
   const [activePlans, setActivePlans] = useState([]);
   const [paymentHistory, setPaymentHistory] = useState([]);
 
   useEffect(() => {
+    if (!isPromoter) {
+      setLoading(false);
+      return;
+    }
     const load = async () => {
       setLoading(true);
       try {
@@ -42,7 +55,7 @@ const Billing = () => {
       }
     };
     load();
-  }, []);
+  }, [isPromoter]);
 
   const handleDownloadInvoice = () => {
     // No invoice/PDF generation exists yet anywhere in the codebase.
@@ -83,6 +96,23 @@ const Billing = () => {
     return (
       <div className="flex justify-center items-center h-64">
         <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (!isPromoter) {
+    return (
+      <div className="max-w-5xl mx-auto py-8 px-4">
+        <div className="text-center py-16 bg-white rounded-2xl border border-gray-100">
+          <ShieldAlert size={48} className="mx-auto mb-3 text-gray-300" />
+          <h2 className="text-lg font-semibold text-gray-700 mb-1">Not available for your account</h2>
+          <p className="text-gray-500 max-w-sm mx-auto">
+            Campaign billing is only available for Builder/Promoter accounts.
+          </p>
+          <Button type="primary" className="mt-4" onClick={() => navigate("/seller/dashboard")}>
+            Back to Dashboard
+          </Button>
+        </div>
       </div>
     );
   }
