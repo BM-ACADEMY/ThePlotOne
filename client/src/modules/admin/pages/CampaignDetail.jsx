@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
-import { Card, Tag, Table, Button, Tooltip, Modal, InputNumber, message, Spin } from "antd";
+import { Card, Tag, Table, Button, Tooltip, Modal, InputNumber, Input, message, Spin, Descriptions, Progress } from "antd";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Phone } from "lucide-react";
+import { ArrowLeft, Phone, MapPin, IndianRupee } from "lucide-react";
 import api from "@/services/api";
 import moment from "moment";
 
@@ -9,9 +9,25 @@ const STATUS_COLOR = {
   draft: "default",
   payment_received: "gold",
   active: "green",
-  paused: "orange",
+  paused: "default",
   completed: "blue",
   expired: "red",
+};
+
+const STATUS_LABEL = {
+  draft: "Draft",
+  payment_received: "Pending",
+  active: "Active",
+  paused: "Paused",
+  completed: "Completed",
+  expired: "Expired",
+};
+
+const PACE_LABEL = {
+  on_track: "On Track",
+  behind: "Behind",
+  ahead: "Ahead",
+  completed: "Completed",
 };
 
 const CampaignDetail = () => {
@@ -23,6 +39,7 @@ const CampaignDetail = () => {
   const [actionLoading, setActionLoading] = useState(false);
   const [extendModalOpen, setExtendModalOpen] = useState(false);
   const [extraDays, setExtraDays] = useState(7);
+  const [extendReason, setExtendReason] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -67,10 +84,11 @@ const CampaignDetail = () => {
 
   const handleExtend = async () => {
     await runAction(
-      () => api.put(`/admin/campaigns/${id}/extend`, { extraDays }),
+      () => api.put(`/admin/campaigns/${id}/extend`, { extraDays, reason: extendReason || undefined }),
       `Campaign extended by ${extraDays} days`,
     );
     setExtendModalOpen(false);
+    setExtendReason("");
   };
 
   const handleComplete = () => {
@@ -89,6 +107,7 @@ const CampaignDetail = () => {
   const canComplete = ["active", "paused"].includes(campaign?.status);
 
   const batchColumns = [
+    { title: "Batch", dataIndex: "batchNumber", key: "batchNumber", render: (v) => `#${v}` },
     { title: "File", dataIndex: "fileName", key: "fileName", render: (v) => v || "—" },
     { title: "Imported", dataIndex: "imported", key: "imported" },
     { title: "Duplicates", dataIndex: "duplicates", key: "duplicates" },
@@ -127,55 +146,79 @@ const CampaignDetail = () => {
         Back to Campaigns
       </Button>
 
-      <Card className="rounded-xl mb-6">
-        <div className="flex items-start justify-between mb-3">
-          <div>
-            <h1 className="text-lg font-bold text-gray-900 m-0">
-              {campaign.projectTitle} — {campaign.planName} Plan
-            </h1>
-            <p className="text-sm text-gray-500 flex items-center gap-2 mt-1">
-              Promoter: {campaign.promoterName}
-              {campaign.promoterPhone && (
-                <span className="flex items-center gap-1">
-                  <Phone size={12} /> {campaign.promoterPhone}
-                </span>
-              )}
-            </p>
-          </div>
-          <Tag color={STATUS_COLOR[campaign.status] || "default"} className="capitalize text-sm px-3 py-1">
-            {campaign.status.replace(/_/g, " ")}
-          </Tag>
-        </div>
-
-        <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-gray-600">
-          <span>GoLive: {campaign.goLiveAt ? moment(campaign.goLiveAt).format("DD MMM YYYY") : "—"}</span>
-          <span>Expires: {campaign.expiresAt ? moment(campaign.expiresAt).format("DD MMM YYYY") : "—"}</span>
-          {campaign.activatedByName && <span>Activated by: {campaign.activatedByName}</span>}
-        </div>
+      <Card title="Campaign Info" className="rounded-xl mb-6">
+        <Descriptions column={{ xs: 1, sm: 2 }} size="small">
+          <Descriptions.Item label="Promoter">
+            {campaign.promoterName}
+            {campaign.promoterPhone && (
+              <span className="inline-flex items-center gap-1 ml-2 text-gray-500">
+                <Phone size={12} /> {campaign.promoterPhone}
+              </span>
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label="Project">
+            {campaign.projectTitle}
+            {campaign.projectLocation && (
+              <span className="inline-flex items-center gap-1 ml-2 text-gray-500">
+                <MapPin size={12} /> {campaign.projectLocation}
+              </span>
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label="Plan">
+            {campaign.planName}
+            {campaign.planPrice !== null && (
+              <span className="inline-flex items-center gap-0.5 ml-1 text-gray-500">
+                (<IndianRupee size={12} />{Number(campaign.planPrice).toLocaleString("en-IN")})
+              </span>
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label="Status">
+            <Tag color={STATUS_COLOR[campaign.status] || "default"}>
+              {STATUS_LABEL[campaign.status] || campaign.status}
+            </Tag>
+          </Descriptions.Item>
+          {campaign.discountLabel && (
+            <Descriptions.Item label="Discount">{campaign.discountLabel}</Descriptions.Item>
+          )}
+          <Descriptions.Item label="GoLive">
+            {campaign.goLiveAt ? moment(campaign.goLiveAt).format("DD MMM YYYY") : "—"}
+          </Descriptions.Item>
+          <Descriptions.Item label="Expires">
+            {campaign.expiresAt ? moment(campaign.expiresAt).format("DD MMM YYYY") : "—"}
+            {campaign.daysRemaining !== null && campaign.daysRemaining !== undefined && (
+              <span className="text-gray-500"> ({campaign.daysRemaining} days remaining)</span>
+            )}
+          </Descriptions.Item>
+          {campaign.activatedByName && (
+            <Descriptions.Item label="Activated by">{campaign.activatedByName}</Descriptions.Item>
+          )}
+        </Descriptions>
       </Card>
 
-      <Card title="Delivery" className="rounded-xl mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <p className="text-2xl font-bold text-gray-900 m-0">
-              {campaign.deliveredCount} / {campaign.committedMinimum}
+      <Card title="Delivery Progress" className="rounded-xl mb-6">
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-sm font-semibold text-gray-700 m-0">
+              Leads Delivered — {campaign.deliveredCount} / {campaign.committedMinimum}
             </p>
-            <p className="text-xs text-gray-400 m-0">Leads Delivered</p>
           </div>
-          {campaign.daysRemaining !== null && campaign.daysRemaining !== undefined && (
-            <div className="text-right">
-              <p className="text-2xl font-bold text-gray-900 m-0">{campaign.daysRemaining}</p>
-              <p className="text-xs text-gray-400 m-0">Days Remaining</p>
-            </div>
-          )}
+          <Progress
+            percent={
+              campaign.committedMinimum > 0
+                ? Math.min(Math.round((campaign.deliveredCount / campaign.committedMinimum) * 100), 100)
+                : 0
+            }
+            status={campaign.deliveredCount >= campaign.committedMinimum ? "success" : "active"}
+          />
         </div>
-        <div className="flex gap-6 text-sm">
+        <div className="flex flex-wrap gap-6 text-sm">
           <span className="text-gray-600">Tier 1 (General): <b>{campaign.tier1Count}</b></span>
           <span className="text-gray-600">Tier 2 (Ready): <b>{campaign.tier2Count}</b></span>
+          <span className="text-gray-600">Pace Status: <b>{PACE_LABEL[campaign.paceStatus] || "—"}</b></span>
         </div>
       </Card>
 
-      <Card title="CSV Imports" className="rounded-xl mb-6">
+      <Card title="CSV Import History" className="rounded-xl mb-6">
         <Table
           dataSource={csvBatches}
           columns={batchColumns}
@@ -224,11 +267,19 @@ const CampaignDetail = () => {
           <span className="text-sm text-gray-600">days</span>
         </div>
         {campaign.expiresAt && (
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 mb-3">
             New expiry:{" "}
             {moment(campaign.expiresAt).add(extraDays, "days").format("DD MMM YYYY")}
           </p>
         )}
+        <div>
+          <p className="text-sm text-gray-600 mb-1">Reason (optional)</p>
+          <Input
+            value={extendReason}
+            onChange={(e) => setExtendReason(e.target.value)}
+            placeholder="e.g. Promoter requested more time"
+          />
+        </div>
       </Modal>
     </div>
   );

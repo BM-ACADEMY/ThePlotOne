@@ -305,6 +305,7 @@ const Sidebar = ({ collapsed, setCollapsed, isMobile }) => {
     contactMessages: 0,
     expiringPlans: 0,
     supportTickets: 0,
+    pendingCampaigns: 0,
   });
   const [businessTypes, setBusinessTypes] = useState([]);
   const [openKeys, setOpenKeys] = useState(["properties-sub", "users-sub", "seller-sub", "enquiries-sub"]);
@@ -346,6 +347,20 @@ const Sidebar = ({ collapsed, setCollapsed, isMobile }) => {
     }
   };
 
+  // Task 9.2 — pendingCampaigns isn't part of /users/fetch-notification-counts
+  // (that endpoint predates campaigns); it's already computed by
+  // getCampaignStats for the Dashboard's own "Pending Activation" card
+  // (Task 1.1), so this reuses that same endpoint rather than duplicating
+  // the count logic in userController.js.
+  const fetchPendingCampaigns = async () => {
+    try {
+      const response = await api.get("/admin/campaigns/stats");
+      setNotifications(prev => ({ ...prev, pendingCampaigns: response.data.pendingActivation || 0 }));
+    } catch (error) {
+      console.error("Error fetching pending campaigns count:", error);
+    }
+  };
+
   const fetchBusinessTypes = async () => {
     try {
       const response = await api.get("/business-types");
@@ -358,12 +373,14 @@ const Sidebar = ({ collapsed, setCollapsed, isMobile }) => {
   useEffect(() => {
     fetchCounts();
     fetchExpiringSoon();
+    fetchPendingCampaigns();
     fetchBusinessTypes();
 
     // Polling fallback every 5 minutes
     const interval = setInterval(() => {
       fetchCounts();
       fetchExpiringSoon();
+      fetchPendingCampaigns();
     }, 5 * 60 * 1000);
 
     return () => clearInterval(interval);
@@ -373,6 +390,7 @@ const Sidebar = ({ collapsed, setCollapsed, isMobile }) => {
     const handleRefresh = () => {
       fetchCounts();
       fetchExpiringSoon();
+      fetchPendingCampaigns();
     };
     window.addEventListener("refresh-admin-counts", handleRefresh);
     return () => window.removeEventListener("refresh-admin-counts", handleRefresh);
@@ -510,12 +528,44 @@ const Sidebar = ({ collapsed, setCollapsed, isMobile }) => {
               {notifications.marketingLeads > 0 && <Badge count={notifications.marketingLeads} size="small" color="#7c3aed" />}
             </div>
           ), 
-          onClick: () => handleMenuClick("/admin/marketing-requests") 
+          onClick: () => handleMenuClick("/admin/marketing-requests")
         },
       ],
     },
+    // Admin Module Task 9.2 / 10.1 — same combined change (the dev plan
+    // describes 10.1 as "the implementation of 9.2 above"). Placed after
+    // Marketing, before Users, per Task 10.1's explicit placement note.
     {
-      key: "users-sub", 
+      key: "campaigns-sub",
+      icon: <Megaphone size={18} />,
+      label: (
+        <div className="flex justify-between items-center pr-4">
+          <span>Campaigns</span>
+          {notifications.pendingCampaigns > 0 && (
+            <Badge count={notifications.pendingCampaigns} size="small" color="#f59e0b" />
+          )}
+        </div>
+      ),
+      children: [
+        {
+          key: "/admin/campaigns/pending",
+          label: (
+            <div className="flex justify-between items-center pr-4">
+              <span>Pending Activation</span>
+              {notifications.pendingCampaigns > 0 && (
+                <Badge count={notifications.pendingCampaigns} size="small" color="#f59e0b" />
+              )}
+            </div>
+          ),
+          onClick: () => handleMenuClick("/admin/campaigns/pending"),
+        },
+        { key: "/admin/campaigns", label: "All Campaigns", onClick: () => handleMenuClick("/admin/campaigns") },
+        { key: "/admin/campaigns/leads", label: "All Leads", onClick: () => handleMenuClick("/admin/campaigns/leads") },
+        { key: "/admin/audit-log", label: "Audit Log", onClick: () => handleMenuClick("/admin/audit-log") },
+      ],
+    },
+    {
+      key: "users-sub",
       icon: <Users size={18} />, 
       label: (
         <div className="flex justify-between items-center pr-4">
@@ -630,8 +680,7 @@ const Sidebar = ({ collapsed, setCollapsed, isMobile }) => {
       ),
       children: [
         { key: "/admin/subscription-plans", label: "Subscription Plans", onClick: () => handleMenuClick("/admin/subscription-plans") },
-        { key: "/admin/campaigns", label: "Campaign Management", onClick: () => handleMenuClick("/admin/campaigns") },
-        { 
+        {
           key: "/admin/payment-history", 
           label: (
             <div className="flex justify-between items-center pr-4">

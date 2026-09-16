@@ -207,7 +207,9 @@ const Dashboard = () => {
       icon: <Rocket size={24} className="text-amber-500" />,
       color: "#fffbe6",
       desc: "Action required — paid, awaiting activation",
-      path: "/admin/campaigns",
+      path: "/admin/campaigns/pending",
+      urgent: (data.campaignStats?.pendingActivation ?? 0) > 0,
+      urgentColor: "#f59e0b",
     },
     {
       title: "Leads Uploaded Today",
@@ -224,6 +226,8 @@ const Dashboard = () => {
       color: "#fff0f6",
       desc: "Delivered >= committed minimum",
       path: "/admin/campaigns",
+      urgent: (data.campaignStats?.campaignsAtLimit ?? 0) > 0,
+      urgentColor: "#f5222d",
     },
   ];
 
@@ -309,9 +313,16 @@ const Dashboard = () => {
                   </Text>
                   <Title
                     level={2}
-                    className="text-xl sm:text-2xl! font-black m-0! mt-0.5 sm:mt-1 tracking-tight text-gray-800"
+                    className="text-xl sm:text-2xl! font-black m-0! mt-0.5 sm:mt-1 tracking-tight text-gray-800 flex items-center gap-1.5"
                   >
                     {stat.value}
+                    {stat.urgent && (
+                      <AlertCircle
+                        size={16}
+                        style={{ color: stat.urgentColor }}
+                        className="shrink-0"
+                      />
+                    )}
                   </Title>
                 </div>
 

@@ -63,6 +63,7 @@ async function run() {
   const projectActive = await new Property({
     seller: promoterId,
     basicInfo: { title: "PM Test Active Project", category: "Sell/Buy", usageType: "Residential", propertyType: "Plot" },
+    location: { locality: "Villianur" },
     slug: `pm-test-active-${Date.now()}`,
   }).save();
   const projectAtLimit = await new Property({
@@ -77,9 +78,12 @@ async function run() {
   }).save();
   cleanup.properties.push(projectActive._id, projectAtLimit._id, projectNoPlan._id);
 
+  const goLiveAt = new Date("2026-08-01T00:00:00Z");
+  const expiresAt = new Date("2026-08-31T00:00:00Z");
   const campaignActive = await new Campaign({
     promoter: promoterId, project: projectActive._id, plan: plan._id,
     committedMinimum: 10, deliveredCount: 3, status: "active", discountTier: 1,
+    goLiveAt, expiresAt, paceStatus: "on_track",
   }).save();
   const campaignAtLimit = await new Campaign({
     promoter: promoterId, project: projectAtLimit._id, plan: plan._id,
@@ -109,6 +113,11 @@ async function run() {
       ? "PASS: project with an under-limit active campaign shows correct plan/leads/status"
       : `FAIL: active row wrong: ${JSON.stringify(activeRow)}`
   );
+  console.log(
+    activeRow && String(activeRow.campaignId) === String(campaignActive._id)
+      ? "PASS: Admin Module Task 6.1 — project row carries campaignId, so the [View] action can link to /admin/campaigns/:id"
+      : `FAIL: campaignId missing/wrong on active row: ${JSON.stringify(activeRow)}`
+  );
 
   const limitRow = projectsById[String(projectAtLimit._id)];
   console.log(
@@ -123,6 +132,11 @@ async function run() {
       ? "PASS: project with no campaign at all shows status 'no_plan', matching the mockup ('ECR Layout | — | — | No Plan')"
       : `FAIL: no-plan row wrong: ${JSON.stringify(noPlanRow)}`
   );
+  console.log(
+    noPlanRow && noPlanRow.campaignId === null
+      ? "PASS: Admin Module Task 6.1 — a no-plan project has campaignId: null (no [View] action to show)"
+      : `FAIL: no-plan row's campaignId should be null: ${JSON.stringify(noPlanRow)}`
+  );
 
   console.log(
     r1.body.paymentHistory.length === 1 &&
@@ -132,13 +146,83 @@ async function run() {
       ? "PASS: paymentHistory correctly linked and formatted"
       : `FAIL: paymentHistory wrong: ${JSON.stringify(r1.body.paymentHistory)}`
   );
+  console.log(
+    r1.body.paymentHistory[0]?.paymentStatus === "completed"
+      ? "PASS: Admin Module Task 6.1 — paymentHistory row carries paymentStatus, for the mockup's Status column"
+      : `FAIL: paymentStatus missing/wrong: ${JSON.stringify(r1.body.paymentHistory[0])}`
+  );
+
+  // ===================================================================
+  // Task 6.2 — the `campaigns` array (one row per actual Campaign, in the
+  // exact shape the task spec lists), added alongside (not replacing)
+  // Task 6.1's `projects`/`paymentHistory` arrays.
+  // ===================================================================
+  console.log(
+    Array.isArray(r1.body.campaigns) && r1.body.campaigns.length === 2
+      ? "PASS: Task 6.2 — campaigns array exists, one row per actual Campaign (2 — the no-plan project has no row)"
+      : `FAIL: campaigns array wrong: ${JSON.stringify(r1.body.campaigns)}`
+  );
+
+  const campaignsById = Object.fromEntries((r1.body.campaigns || []).map((c) => [String(c._id), c]));
+  const activeCampaignRow = campaignsById[String(campaignActive._id)];
+  console.log(
+    activeCampaignRow &&
+      activeCampaignRow.status === "active" &&
+      activeCampaignRow.plan?.name === "growth-promoter-mgmt-test" &&
+      activeCampaignRow.plan?.price === 24999 &&
+      activeCampaignRow.project?.title === "PM Test Active Project" &&
+      activeCampaignRow.project?.location?.locality === "Villianur" &&
+      activeCampaignRow.committedMinimum === 10 &&
+      activeCampaignRow.deliveredCount === 3 &&
+      new Date(activeCampaignRow.goLiveAt).getTime() === goLiveAt.getTime() &&
+      new Date(activeCampaignRow.expiresAt).getTime() === expiresAt.getTime() &&
+      activeCampaignRow.paceStatus === "on_track"
+      ? "PASS: Task 6.2 — campaign row has _id/status/plan.name/plan.price/project.title/project.location.locality/committedMinimum/deliveredCount/goLiveAt/expiresAt/paceStatus, all real schema fields"
+      : `FAIL: campaign row shape wrong: ${JSON.stringify(activeCampaignRow)}`
+  );
+
+  console.log(
+    r1.body.paymentHistory.length === 1 &&
+      typeof r1.body.paymentHistory[0].date !== "undefined" &&
+      typeof r1.body.paymentHistory[0].planName !== "undefined" &&
+      typeof r1.body.paymentHistory[0].amountPaid !== "undefined" &&
+      typeof r1.body.paymentHistory[0].projectTitle !== "undefined"
+      ? "PASS: Task 6.2 — paymentHistory already carries the underlying data (transactionDate/planName/amountPaid/project) under Task 6.1's existing field names (date/projectTitle) — left unchanged rather than duplicating fields or breaking SellerList"
+      : `FAIL: paymentHistory missing underlying Task 6.2 data: ${JSON.stringify(r1.body.paymentHistory[0])}`
+  );
+
+  // Ownership — a second, unrelated promoter's data must never leak in
+  const otherPromoterId = ObjectId();
+  const otherProject = await new Property({
+    seller: otherPromoterId,
+    basicInfo: { title: "PM Test Other Promoter Project", category: "Sell/Buy", usageType: "Residential", propertyType: "Plot" },
+    slug: `pm-test-other-${Date.now()}`,
+  }).save();
+  const otherCampaign = await new Campaign({
+    promoter: otherPromoterId, project: otherProject._id, plan: plan._id,
+    committedMinimum: 10, deliveredCount: 1, status: "active", discountTier: 1,
+  }).save();
+  cleanup.properties.push(otherProject._id);
+  cleanup.campaigns.push(otherCampaign._id);
+
+  const r1Other = await callController(campaignController.getPromoterCampaigns, { params: { id: String(otherPromoterId) } });
+  const leakedIntoFirst = r1.body.campaigns.some((c) => String(c._id) === String(otherCampaign._id));
+  const otherHasOwnCampaign = r1Other.body.campaigns.some((c) => String(c._id) === String(otherCampaign._id));
+  console.log(
+    !leakedIntoFirst && otherHasOwnCampaign
+      ? "PASS: campaign/payment data is correctly scoped to the requested promoter — no cross-promoter leakage"
+      : `FAIL: ownership scoping broken — leaked into first promoter: ${leakedIntoFirst}, other promoter has own campaign: ${otherHasOwnCampaign}`
+  );
 
   // A promoter with zero projects at all — must not crash, must return empty arrays
   const emptyPromoterId = ObjectId();
   const r1b = await callController(campaignController.getPromoterCampaigns, { params: { id: String(emptyPromoterId) } });
   console.log(
-    r1b.status === 200 && r1b.body.projects.length === 0 && r1b.body.paymentHistory.length === 0
-      ? "PASS: a promoter with no projects returns empty arrays, not an error"
+    r1b.status === 200 &&
+      r1b.body.projects.length === 0 &&
+      r1b.body.campaigns.length === 0 &&
+      r1b.body.paymentHistory.length === 0
+      ? "PASS: a promoter with no projects returns empty arrays (incl. Task 6.2's campaigns), not an error"
       : `FAIL: empty-promoter case wrong: ${JSON.stringify(r1b.body)}`
   );
 

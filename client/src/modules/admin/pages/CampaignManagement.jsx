@@ -5,13 +5,31 @@ import { useNavigate } from "react-router-dom";
 import moment from "moment";
 import api from "@/services/api";
 
+// Task 3.2 status badges: Active green, Pending (payment_received) amber,
+// Paused grey, Completed blue, Expired red.
 const STATUS_COLOR = {
   draft: "default",
   payment_received: "gold",
   active: "green",
-  paused: "orange",
+  paused: "default",
   completed: "blue",
   expired: "red",
+};
+
+const STATUS_LABEL = {
+  draft: "Draft",
+  payment_received: "Pending",
+  active: "Active",
+  paused: "Paused",
+  completed: "Completed",
+  expired: "Expired",
+};
+
+const PACE_LABEL = {
+  on_track: "On Track",
+  behind: "Behind",
+  ahead: "Ahead",
+  completed: "Completed",
 };
 
 const CampaignManagement = () => {
@@ -67,8 +85,16 @@ const CampaignManagement = () => {
 
   const handleActivate = (campaign) => {
     Modal.confirm({
-      title: "Activate Campaign?",
-      content: `Project: ${campaign.projectTitle}. Plan: ${campaign.planName} — ${campaign.committedMinimum} leads committed. This will notify the promoter immediately.`,
+      title: "Are you sure you want to activate this campaign?",
+      content: (
+        <div>
+          <p className="m-0">Project: {campaign.projectTitle}</p>
+          <p className="m-0">
+            Plan: {campaign.planName} — {campaign.committedMinimum} leads committed
+          </p>
+          <p className="mt-2 mb-0">This will notify the promoter immediately.</p>
+        </div>
+      ),
       okText: "Activate",
       onOk: async () => {
         setActivatingId(campaign._id);
@@ -113,12 +139,24 @@ const CampaignManagement = () => {
       render: (_, row) => `${row.deliveredCount} / ${row.committedMinimum}`,
     },
     {
+      title: "Pace",
+      key: "pace",
+      render: (_, row) => {
+        // Not yet delivering — pace isn't meaningful yet.
+        if (row.status === "draft" || row.status === "payment_received") return "—";
+        // Hit/exceeded the committed count takes priority over the underlying
+        // paceStatus — mirrors the Dashboard's "Campaigns at Limit" stat.
+        if (row.committedMinimum > 0 && row.deliveredCount >= row.committedMinimum) return "Limit";
+        return PACE_LABEL[row.paceStatus] || "—";
+      },
+    },
+    {
       title: "Status",
       dataIndex: "status",
       key: "status",
       render: (status) => (
-        <Tag color={STATUS_COLOR[status] || "default"} className="capitalize">
-          {status.replace(/_/g, " ")}
+        <Tag color={STATUS_COLOR[status] || "default"}>
+          {STATUS_LABEL[status] || status}
         </Tag>
       ),
     },
@@ -144,27 +182,48 @@ const CampaignManagement = () => {
           <div className="grid gap-3 sm:grid-cols-2">
             {pendingCampaigns.map((c) => (
               <Card key={c._id} className="rounded-xl border-amber-200">
-                <p className="font-semibold text-gray-900 m-0">
-                  {c.promoterName} — {c.projectTitle} — {c.planName}
-                  {c.amountPaid !== null && (
-                    <span className="flex items-center gap-0.5 inline-flex ml-1">
-                      — <IndianRupee size={13} />
-                      {c.amountPaid.toLocaleString("en-IN")} paid
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-semibold text-gray-900 m-0">
+                    {c.promoterName}
+                  </p>
+                  {c.paidAt && (
+                    <span className="text-xs text-gray-400 shrink-0 whitespace-nowrap">
+                      Paid: {moment(c.paidAt).format("DD MMM YYYY")}
                     </span>
                   )}
-                </p>
-                <p className="text-sm text-gray-500 mt-1 mb-3">
-                  {c.paidAt && <>Paid: {moment(c.paidAt).format("DD MMM YYYY")} · </>}
-                  Plan: {c.planName} · Leads: {c.committedMinimum}
-                </p>
-                <Button
-                  type="primary"
-                  size="small"
-                  loading={activatingId === c._id}
-                  onClick={() => handleActivate(c)}
-                >
-                  Activate Campaign
-                </Button>
+                </div>
+                <div className="flex items-start justify-between gap-2 mt-1">
+                  <p className="text-sm text-gray-700 m-0">{c.projectTitle}</p>
+                  <span className="text-xs text-gray-500 shrink-0 whitespace-nowrap">Plan: {c.planName}</span>
+                </div>
+                <div className="flex items-start justify-between gap-2 mt-1 mb-3">
+                  <p className="text-sm text-gray-500 m-0 flex items-center gap-0.5">
+                    {c.amountPaid !== null ? (
+                      <>
+                        <IndianRupee size={13} />
+                        {c.amountPaid.toLocaleString("en-IN")} received via Razorpay
+                      </>
+                    ) : (
+                      "Payment record not found"
+                    )}
+                  </p>
+                  <span className="text-xs text-gray-500 shrink-0 whitespace-nowrap">
+                    {c.committedMinimum} leads committed
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button size="small" onClick={() => navigate(`/admin/campaigns/${c._id}`)}>
+                    View Campaign Details
+                  </Button>
+                  <Button
+                    type="primary"
+                    size="small"
+                    loading={activatingId === c._id}
+                    onClick={() => handleActivate(c)}
+                  >
+                    Activate Campaign
+                  </Button>
+                </div>
               </Card>
             ))}
           </div>

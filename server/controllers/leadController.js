@@ -4,6 +4,7 @@ const Requirement = require("../models/Requirement");
 const User = require("../models/User");
 const SubscriptionPlan = require("../models/SubscriptionPlan");
 const Property = require("../models/Property");
+const CsvImportBatch = require("../models/CsvImportBatch");
 const { writeAudit } = require("../utils/auditLogger");
 
 // Get leads shared with the seller's current plan
@@ -480,6 +481,108 @@ exports.getMyLeads = async (req, res) => {
     });
   } catch (error) {
     console.error("Get My Leads Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ============================================================
+// GET ALL CAMPAIGN LEADS (Admin) — Admin Module Task 5.1
+// GET /api/admin/leads
+// Query: campaignId, projectId, promoterStatus, dateFrom, dateTo, page, limit
+// Unlike getMyLeads (scoped to one promoter's own projects), this is
+// platform-wide and returns full contact details — admin sees ALL mechanics.
+// ============================================================
+exports.getAllLeads = async (req, res) => {
+  try {
+    const { campaignId, projectId, promoterStatus, dateFrom, dateTo, page = 1, limit = 20 } = req.query;
+
+    // Scoped to campaign-delivered leads — the admin's campaign-leads view,
+    // not the legacy SharedLead broadcast pool.
+    const query = { campaignId: { $ne: null } };
+    if (campaignId) query.campaignId = campaignId;
+    if (projectId) query.matchedProject = projectId;
+    if (promoterStatus) query.promoterStatus = promoterStatus;
+
+    if (dateFrom || dateTo) {
+      query.deliveredAt = {};
+      if (dateFrom) query.deliveredAt.$gte = new Date(dateFrom);
+      if (dateTo) query.deliveredAt.$lte = new Date(dateTo);
+    }
+
+    const [leads, total] = await Promise.all([
+      Requirement.find(query)
+        .populate("matchedProject", "basicInfo.title location.locality")
+        .populate({
+          path: "campaignId",
+          select: "promoter plan",
+          populate: [
+            { path: "promoter", select: "name phone" },
+            { path: "plan", select: "name displayName" },
+          ],
+        })
+        .sort({ deliveredAt: -1, createdAt: -1 })
+        .limit(limit * 1)
+        .skip((page - 1) * limit),
+      Requirement.countDocuments(query),
+    ]);
+
+    // Task 5.2 — "Batch: Import #N". N is this batch's ordinal among its own
+    // campaign's batches (oldest first), same scheme as CampaignDetail.jsx's
+    // CSV Import History table — computed here, once, for every campaign
+    // represented on this page rather than per-lead.
+    const campaignIdsOnPage = [...new Set(leads.map((l) => l.campaignId?._id).filter(Boolean).map(String))];
+    const batchesForPage = await CsvImportBatch.find({ campaign: { $in: campaignIdsOnPage } }).sort({ createdAt: 1 });
+    const batchOrdinalByCampaign = new Map(); // campaignId -> Map(batchId -> ordinal)
+    batchesForPage.forEach((b) => {
+      const campaignKey = String(b.campaign);
+      if (!batchOrdinalByCampaign.has(campaignKey)) batchOrdinalByCampaign.set(campaignKey, new Map());
+      const ordinals = batchOrdinalByCampaign.get(campaignKey);
+      ordinals.set(String(b._id), ordinals.size + 1);
+    });
+
+    const formatted = leads.map((lead) => {
+      const campaignKey = lead.campaignId?._id ? String(lead.campaignId._id) : null;
+      const batchNumber =
+        lead.csvImportBatch && campaignKey
+          ? batchOrdinalByCampaign.get(campaignKey)?.get(String(lead.csvImportBatch)) || null
+          : null;
+
+      return {
+        _id: lead._id,
+        fullName: lead.fullName,
+        phoneNumber: lead.phoneNumber,
+        email: lead.email,
+        preferredLocation: lead.preferredLocation,
+        minBudget: lead.minBudget,
+        maxBudget: lead.maxBudget,
+        propertyType: lead.propertyType,
+        usageType: lead.usageType,
+        message: lead.message,
+        source: lead.source,
+        tier: lead.tier,
+        deliveredAt: lead.deliveredAt,
+        promoterStatus: lead.promoterStatus,
+        promoterNotes: lead.promoterNotes,
+        batchNumber,
+        projectId: lead.matchedProject?._id || null,
+        projectTitle: lead.matchedProject?.basicInfo?.title || "Untitled Project",
+        projectLocality: lead.matchedProject?.location?.locality || null,
+        campaignId: campaignKey,
+        promoterName: lead.campaignId?.promoter?.name || null,
+        promoterPhone: lead.campaignId?.promoter?.phone || null,
+        planName: lead.campaignId?.plan?.displayName || lead.campaignId?.plan?.name || null,
+      };
+    });
+
+    res.json({
+      success: true,
+      leads: formatted,
+      totalPages: Math.ceil(total / limit),
+      currentPage: Number(page),
+      total,
+    });
+  } catch (error) {
+    console.error("Get All Leads Error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
