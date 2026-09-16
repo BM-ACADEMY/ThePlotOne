@@ -183,6 +183,9 @@ exports.importLeads = async (req, res) => {
     const errorLog = [];
     const createdLeads = [];
     const seenThisPass = new Set(); // phones already counted as imported this pass
+    // Task 4.3 — first 5 importable rows, for the dry-run preview table only.
+    const PREVIEW_SAMPLE_SIZE = 5;
+    const previewRows = [];
 
     // Sequential, not parallel — a later row with a repeated phone number
     // must see the earlier row already counted/created this pass, in both
@@ -214,6 +217,15 @@ exports.importLeads = async (req, res) => {
       if (isDryRun) {
         seenThisPass.add(phoneNumber);
         importedCount++;
+        if (previewRows.length < PREVIEW_SAMPLE_SIZE) {
+          previewRows.push({
+            fullName: result.data.fullName,
+            phoneNumber: result.data.phoneNumber,
+            preferredLocation: result.data.preferredLocation || null,
+            minBudget: result.data.minBudget ?? null,
+            maxBudget: result.data.maxBudget ?? null,
+          });
+        }
         continue;
       }
 
@@ -245,6 +257,7 @@ exports.importLeads = async (req, res) => {
         imported: importedCount,
         duplicates: duplicateCount,
         failed: failedCount,
+        previewRows,
         total: rows.length,
         errorLog,
       });

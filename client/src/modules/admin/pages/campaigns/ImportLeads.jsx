@@ -29,9 +29,11 @@ const AUTO_MATCH = {
   phone: "phoneNumber",
   mobile: "phoneNumber",
   email: "email",
+  email_address: "email",
   preferred_area: "preferredLocation",
   area: "preferredLocation",
   location: "preferredLocation",
+  city: "preferredLocation",
   budget: "budget",
   min_budget: "minBudget",
   max_budget: "maxBudget",
@@ -44,6 +46,17 @@ const AUTO_MATCH = {
 const guessField = (header) => {
   const key = header.trim().toLowerCase().replace(/\s+/g, "_");
   return AUTO_MATCH[key] || "";
+};
+
+// Task 4.3 preview table formatting — "98765 43210" / "₹25L–35L".
+const formatPhone = (phone) => (phone && phone.length === 10 ? `${phone.slice(0, 5)} ${phone.slice(5)}` : phone || "—");
+
+const formatBudget = (min, max) => {
+  const fmt = (n) => (n >= 100000 ? `₹${(n / 100000).toFixed(0)}L` : `₹${Number(n).toLocaleString("en-IN")}`);
+  if (min && max) return `${fmt(min)}–${fmt(max)}`;
+  if (min) return `${fmt(min)}+`;
+  if (max) return `Up to ${fmt(max)}`;
+  return "—";
 };
 
 // Parses only the header row + a couple of preview rows client-side, purely
@@ -193,7 +206,7 @@ const ImportLeads = () => {
       render: (v) => <span className="text-gray-400">{v || "—"}</span>,
     },
     {
-      title: "Maps To",
+      title: "System Field",
       dataIndex: "header",
       key: "mapTo",
       render: (header) => (
@@ -248,11 +261,13 @@ const ImportLeads = () => {
       </Button>
 
       <Card className="rounded-xl mb-6">
-        <h1 className="text-lg font-bold text-gray-900 m-0">Import Leads — {campaign.projectTitle}</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Delivered {campaign.deliveredCount} / {campaign.committedMinimum}
-          {remaining !== null && <span className="ml-2">({remaining} remaining to commitment)</span>}
-        </p>
+        <h1 className="text-lg font-bold text-gray-900 m-0">
+          Import Leads — {campaign.projectTitle} ({campaign.planName}: {campaign.deliveredCount}/
+          {campaign.committedMinimum} leads delivered)
+        </h1>
+        {remaining !== null && (
+          <p className="text-sm text-gray-500 mt-1">Remaining capacity: {remaining} leads</p>
+        )}
       </Card>
 
       <Card className="rounded-xl">
@@ -269,8 +284,10 @@ const ImportLeads = () => {
               <p className="ant-upload-drag-icon flex justify-center">
                 <UploadCloud size={40} className="text-blue-500" />
               </p>
-              <p className="ant-upload-text">Click or drag a CSV file to this area</p>
-              <p className="ant-upload-hint text-gray-400">Max 5MB, .csv only</p>
+              <p className="ant-upload-text">Drag & drop your CSV file here, or Browse File</p>
+              <p className="ant-upload-hint text-gray-400">
+                Supported format: Meta Lead Center export (.csv) · Max file size: 5MB
+              </p>
             </Upload.Dragger>
           </div>
         )}
@@ -298,7 +315,7 @@ const ImportLeads = () => {
             <div className="flex justify-end gap-3">
               <Button onClick={resetWizard}>Cancel</Button>
               <Button type="primary" disabled={!hasRequiredFields} loading={previewLoading} onClick={handlePreview}>
-                Preview Import
+                Preview Import →
               </Button>
             </div>
           </div>
@@ -306,19 +323,20 @@ const ImportLeads = () => {
 
         {step === 2 && previewResult && (
           <div>
-            <div className="grid grid-cols-3 gap-4 mb-4">
-              <div className="text-center p-4 bg-green-50 rounded-lg">
-                <p className="text-2xl font-bold text-green-600 m-0">{previewResult.imported}</p>
-                <p className="text-xs text-gray-500 m-0">Will Import</p>
-              </div>
-              <div className="text-center p-4 bg-orange-50 rounded-lg">
-                <p className="text-2xl font-bold text-orange-500 m-0">{previewResult.duplicates}</p>
-                <p className="text-xs text-gray-500 m-0">Duplicates</p>
-              </div>
-              <div className="text-center p-4 bg-red-50 rounded-lg">
-                <p className="text-2xl font-bold text-red-500 m-0">{previewResult.failed}</p>
-                <p className="text-xs text-gray-500 m-0">Failed</p>
-              </div>
+            <h2 className="text-base font-bold text-gray-900 mb-4">Import Preview</h2>
+
+            <div className="space-y-2 mb-5">
+              <p className="text-sm text-gray-700 m-0">
+                ✅ <b>{previewResult.imported}</b> new lead{previewResult.imported === 1 ? "" : "s"} ready to import
+              </p>
+              <p className="text-sm text-gray-700 m-0">
+                ⚠️ <b>{previewResult.duplicates}</b> duplicate{previewResult.duplicates === 1 ? "" : "s"} — already in
+                system (will be skipped)
+              </p>
+              <p className="text-sm text-gray-700 m-0">
+                ❌ <b>{previewResult.failed}</b> invalid — missing required field{previewResult.failed === 1 ? "" : "s"}{" "}
+                (will be skipped)
+              </p>
             </div>
 
             {previewResult.errorLog?.length > 0 && (
@@ -341,15 +359,40 @@ const ImportLeads = () => {
               <Alert type="warning" showIcon className="mb-4" message="No rows will be imported — check your mapping" />
             )}
 
+            {previewResult.previewRows?.length > 0 && (
+              <div className="mb-4">
+                <p className="text-sm font-semibold text-gray-600 mb-2">
+                  Preview (first {previewResult.previewRows.length} row
+                  {previewResult.previewRows.length === 1 ? "" : "s"}):
+                </p>
+                <Table
+                  size="small"
+                  pagination={false}
+                  rowKey={(r) => r.phoneNumber}
+                  dataSource={previewResult.previewRows}
+                  columns={[
+                    { title: "Name", dataIndex: "fullName", key: "fullName" },
+                    { title: "Phone", dataIndex: "phoneNumber", key: "phoneNumber", render: formatPhone },
+                    { title: "Area", dataIndex: "preferredLocation", key: "preferredLocation", render: (v) => v || "—" },
+                    {
+                      title: "Budget",
+                      key: "budget",
+                      render: (_, r) => formatBudget(r.minBudget, r.maxBudget),
+                    },
+                  ]}
+                />
+              </div>
+            )}
+
             <div className="flex justify-end gap-3">
-              <Button onClick={() => setStep(1)}>Back to Mapping</Button>
+              <Button onClick={() => setStep(1)}>← Back</Button>
               <Button
                 type="primary"
                 disabled={previewResult.imported === 0}
                 loading={importLoading}
                 onClick={handleConfirmImport}
               >
-                Confirm Import ({previewResult.imported} leads)
+                Confirm Import
               </Button>
             </div>
           </div>
@@ -358,19 +401,21 @@ const ImportLeads = () => {
         {step === 3 && importResult && (
           <div className="text-center py-8">
             <CheckCircle2 size={48} className="text-green-500 mx-auto mb-3" />
-            <h2 className="text-lg font-semibold text-gray-900">Import Complete</h2>
-            <p className="text-sm text-gray-500 mb-4">
-              {importResult.imported} lead(s) imported, {importResult.duplicates} duplicate(s), {importResult.failed}{" "}
-              failed
+            <h2 className="text-lg font-semibold text-gray-900 mb-3">✅ Import Complete</h2>
+            <p className="text-sm text-gray-700 m-0">
+              {importResult.imported} lead{importResult.imported === 1 ? "" : "s"} added to {campaign.projectTitle}
             </p>
+            {importResult.imported > 0 && (
+              <p className="text-sm text-gray-700 mt-1 mb-3">Promoter has been notified</p>
+            )}
             <Tag color="blue" className="text-sm px-3 py-1 mb-6">
-              Campaign now at {importResult.campaignDelivered} / {importResult.campaignCommitted}
+              Leads delivered: {importResult.campaignDelivered} / {importResult.campaignCommitted}
             </Tag>
             <div className="flex justify-center gap-3">
-              <Button onClick={resetWizard}>Import Another File</Button>
               <Button type="primary" onClick={() => navigate(`/admin/campaigns/${id}`)}>
-                Back to Campaign
+                View Campaign
               </Button>
+              <Button onClick={resetWizard}>Import More Leads</Button>
             </div>
           </div>
         )}

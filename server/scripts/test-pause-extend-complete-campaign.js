@@ -109,7 +109,8 @@ async function run() {
   }).save();
 
   const rExtend = await callController(campaignController.extendCampaign, {
-    user: { _id: adminId }, params: { id: String(activeCampaignB._id) }, body: { extraDays: 7 },
+    user: { _id: adminId }, params: { id: String(activeCampaignB._id) },
+    body: { extraDays: 7, reason: "Promoter requested more time" },
   });
   const expectedExpiry = new Date(originalExpiry.getTime() + 7 * 24 * 60 * 60 * 1000);
   console.log(
@@ -132,6 +133,11 @@ async function run() {
   const extendNotif = await Notification.findOne({ recipient: promoterId, type: "campaign_extended" });
   console.log(
     extendAudit ? "PASS: AuditLog CAMPAIGN_EXTENDED written" : "FAIL: extend audit log missing"
+  );
+  console.log(
+    extendAudit && extendAudit.reason.includes("Promoter requested more time")
+      ? "PASS: Task 3.4 optional reason is folded into the audit log reason"
+      : `FAIL: reason not recorded: ${extendAudit?.reason}`
   );
   console.log(
     extendNotif && extendNotif.message.includes("7 days")

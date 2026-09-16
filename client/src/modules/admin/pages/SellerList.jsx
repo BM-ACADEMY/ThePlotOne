@@ -39,7 +39,8 @@ import {
   Linkedin,
   Home,
   Megaphone,
-  IndianRupee
+  IndianRupee,
+  Phone
 } from "lucide-react";
 import api from "@/services/api";
 import { useSocket } from "@/context/SocketContext";
@@ -72,6 +73,10 @@ const CAMPAIGN_PROJECT_STATUS_COLOR = {
   completed: "blue",
   expired: "red",
 };
+// PaymentHistory.paymentStatus enum: completed/failed/refunded.
+const PAYMENT_STATUS_LABEL = { completed: "Paid", failed: "Failed", refunded: "Refunded" };
+const PAYMENT_STATUS_COLOR = { completed: "green", failed: "red", refunded: "gold" };
+
 const isPromoterRecord = (record) => /Builder|Promoter/i.test(record?.businessType?.name || "");
 
 const SellerList = () => {
@@ -87,6 +92,7 @@ const SellerList = () => {
   const [campaignSummary, setCampaignSummary] = useState({ projects: [], paymentHistory: [] });
   const [campaignSummaryLoading, setCampaignSummaryLoading] = useState(false);
   const [campaignPromoterName, setCampaignPromoterName] = useState("");
+  const [campaignPromoterPhone, setCampaignPromoterPhone] = useState("");
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const typeFilter = searchParams.get("type");
@@ -164,6 +170,7 @@ const SellerList = () => {
 
   const handleViewCampaigns = async (record) => {
     setCampaignPromoterName(record.name || "Promoter");
+    setCampaignPromoterPhone(record.phone || "");
     setCampaignModalVisible(true);
     setCampaignSummaryLoading(true);
     try {
@@ -755,8 +762,17 @@ const SellerList = () => {
         centered
         styles={{ body: { maxHeight: "70vh", overflowY: "auto", padding: "24px" } }}
       >
+        <div className="mb-5">
+          <p className="text-sm font-bold text-gray-900 m-0">Promoter: {campaignPromoterName}</p>
+          {campaignPromoterPhone && (
+            <p className="text-sm text-gray-500 mt-0.5 mb-0 flex items-center gap-1.5">
+              <Phone size={13} /> {campaignPromoterPhone}
+            </p>
+          )}
+        </div>
+
         <Title level={5} className="mb-3!">
-          Projects
+          Projects and Campaigns
         </Title>
         <Table
           dataSource={campaignSummary.projects}
@@ -765,7 +781,7 @@ const SellerList = () => {
           pagination={false}
           size="small"
           className="mb-8"
-          locale={{ emptyText: "No projects yet" }}
+          locale={{ emptyText: "No campaigns found" }}
           columns={[
             { title: "Project", dataIndex: "projectTitle", key: "projectTitle" },
             {
@@ -796,6 +812,24 @@ const SellerList = () => {
                 </Tag>
               ),
             },
+            {
+              title: "Action",
+              key: "action",
+              render: (_, row) =>
+                row.campaignId ? (
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      setCampaignModalVisible(false);
+                      navigate(`/admin/campaigns/${row.campaignId}`);
+                    }}
+                  >
+                    View
+                  </Button>
+                ) : (
+                  <span className="text-gray-400">—</span>
+                ),
+            },
           ]}
         />
 
@@ -808,7 +842,7 @@ const SellerList = () => {
           loading={campaignSummaryLoading}
           pagination={{ pageSize: 5 }}
           size="small"
-          locale={{ emptyText: "No campaign payments yet" }}
+          locale={{ emptyText: "No payment history found" }}
           columns={[
             {
               title: "Date",
@@ -827,6 +861,16 @@ const SellerList = () => {
                   <IndianRupee size={12} className="mr-0.5" />
                   {Number(v || 0).toLocaleString("en-IN")}
                 </span>
+              ),
+            },
+            {
+              title: "Status",
+              dataIndex: "paymentStatus",
+              key: "paymentStatus",
+              render: (status) => (
+                <Tag color={PAYMENT_STATUS_COLOR[status] || "default"}>
+                  {PAYMENT_STATUS_LABEL[status] || status}
+                </Tag>
               ),
             },
           ]}

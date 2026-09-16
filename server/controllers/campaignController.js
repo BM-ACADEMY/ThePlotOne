@@ -43,6 +43,7 @@ exports.getAllCampaigns = async (req, res) => {
       deliveredCount: c.deliveredCount || 0,
       committedMinimum: c.committedMinimum || 0,
       status: c.status,
+      paceStatus: c.paceStatus,
     }));
 
     res.json({ success: true, campaigns: formatted });
@@ -102,20 +103,26 @@ exports.getPromoterCampaigns = async (req, res) => {
 
     const [properties, campaigns, paymentHistoryDocs] = await Promise.all([
       Property.find({ seller: id }).select("basicInfo.title").sort({ createdAt: -1 }),
-      Campaign.find({ promoter: id }).populate("plan", "name displayName"),
+      Campaign.find({ promoter: id })
+        .populate("plan", "name displayName price")
+        .populate("project", "basicInfo.title location.locality"),
       PaymentHistory.find({ user: id, campaign: { $ne: null } })
         .populate("plan", "name displayName")
         .populate("project", "basicInfo.title")
         .sort({ transactionDate: -1 }),
     ]);
 
-    const campaignByProject = new Map(campaigns.map((c) => [String(c.project), c]));
+    // c.project is now a populated document (Task 6.2 needs project.title/
+    // location.locality on the campaign object) — key this map by its _id,
+    // not by the document itself, or every lookup below would silently miss.
+    const campaignByProject = new Map(campaigns.map((c) => [String(c.project?._id), c]));
 
     const projects = properties.map((p) => {
       const c = campaignByProject.get(String(p._id));
       if (!c) {
         return {
           projectId: p._id,
+          campaignId: null,
           projectTitle: p.basicInfo?.title || "Untitled Project",
           planName: null,
           deliveredCount: null,
@@ -126,6 +133,7 @@ exports.getPromoterCampaigns = async (req, res) => {
       const atLimit = c.committedMinimum > 0 && c.deliveredCount >= c.committedMinimum;
       return {
         projectId: p._id,
+        campaignId: c._id,
         projectTitle: p.basicInfo?.title || "Untitled Project",
         planName: c.plan?.displayName || c.plan?.name || "—",
         deliveredCount: c.deliveredCount || 0,
@@ -140,9 +148,36 @@ exports.getPromoterCampaigns = async (req, res) => {
       projectTitle: p.project?.basicInfo?.title || "—",
       planName: p.plan?.displayName || p.plan?.name || "—",
       amountPaid: p.amountPaid,
+      paymentStatus: p.paymentStatus,
     }));
 
-    res.json({ success: true, projects, paymentHistory });
+    // Task 6.2 — one row per actual campaign (unlike `projects` above, which
+    // is one row per project and includes no-plan placeholder rows for
+    // Task 6.1's SellerList table). Built from the same `campaigns` query
+    // result, no extra DB round-trip. Field names/shape match the task's
+    // spec literally, including the real SubscriptionPlan/Property field
+    // names (plan.name, not the displayName fallback used above).
+    const formattedCampaigns = campaigns.map((c) => ({
+      _id: c._id,
+      status: c.status,
+      plan: {
+        name: c.plan?.name || null,
+        price: c.plan?.price ?? null,
+      },
+      project: {
+        title: c.project?.basicInfo?.title || null,
+        location: {
+          locality: c.project?.location?.locality || null,
+        },
+      },
+      committedMinimum: c.committedMinimum || 0,
+      deliveredCount: c.deliveredCount || 0,
+      goLiveAt: c.goLiveAt,
+      expiresAt: c.expiresAt,
+      paceStatus: c.paceStatus,
+    }));
+
+    res.json({ success: true, projects, campaigns: formattedCampaigns, paymentHistory });
   } catch (error) {
     console.error("Get Promoter Campaigns Error:", error);
     res.status(500).json({ success: false, message: error.message });
@@ -157,11 +192,12 @@ exports.getCampaignStats = async (req, res) => {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
-    const [activeCampaigns, pendingActivation, leadsUploadedToday, atLimitCandidates] = await Promise.all([
+    const [activeCampaigns, pendingActivation, leadsUploadedToday, atLimitCandidates, campaignsBehindPace] = await Promise.all([
       Campaign.countDocuments({ status: "active" }),
       Campaign.countDocuments({ status: "payment_received" }),
       Requirement.countDocuments({ campaignId: { $ne: null }, deliveredAt: { $gte: startOfToday } }),
       Campaign.find({ status: "active", committedMinimum: { $gt: 0 } }).select("deliveredCount committedMinimum"),
+      Campaign.countDocuments({ paceStatus: "behind" }),
     ]);
 
     const campaignsAtLimit = atLimitCandidates.filter((c) => c.deliveredCount >= c.committedMinimum).length;
@@ -172,6 +208,7 @@ exports.getCampaignStats = async (req, res) => {
       pendingActivation,
       leadsUploadedToday,
       campaignsAtLimit,
+      campaignsBehindPace,
     });
   } catch (error) {
     console.error("Get Campaign Stats Error:", error);
@@ -186,8 +223,8 @@ exports.getCampaignDetail = async (req, res) => {
 
     const campaign = await Campaign.findById(id)
       .populate("promoter", "name phone")
-      .populate("project", "basicInfo.title")
-      .populate("plan", "name displayName")
+      .populate("project", "basicInfo.title location.locality location.city")
+      .populate("plan", "name displayName price")
       .populate("activatedBy", "name");
 
     if (!campaign) {
@@ -210,15 +247,35 @@ exports.getCampaignDetail = async (req, res) => {
       .populate("uploadedBy", "name")
       .sort({ createdAt: 1 });
 
+    // Discount ladder — same tiers as discountUtils.getVolumeDiscount, keyed
+    // by the tier already stamped on the campaign at creation time rather
+    // than recomputed here (discountTier is immutable per campaign).
+    const DISCOUNT_PERCENT_BY_TIER = { 1: 0, 2: 20, 3: 25, 4: 30 };
+    const ORDINAL = { 1: "1st", 2: "2nd", 3: "3rd", 4: "4th" };
+    let discountLabel = null;
+    if (campaign.discountTier) {
+      const percent = DISCOUNT_PERCENT_BY_TIER[campaign.discountTier] ?? 0;
+      discountLabel =
+        percent > 0
+          ? `${percent}% off — ${ORDINAL[campaign.discountTier]} campaign (Tier ${campaign.discountTier})`
+          : `No discount — ${ORDINAL[campaign.discountTier]} campaign`;
+    }
+
+    const locationParts = [campaign.project?.location?.locality, campaign.project?.location?.city].filter(Boolean);
+
     res.json({
       success: true,
       campaign: {
         _id: campaign._id,
         projectTitle: campaign.project?.basicInfo?.title || "Untitled Project",
+        projectLocation: locationParts.join(", ") || null,
         planName: campaign.plan?.displayName || campaign.plan?.name || "—",
+        planPrice: campaign.plan?.price ?? null,
         promoterName: campaign.promoter?.name || "Unknown",
         promoterPhone: campaign.promoter?.phone || null,
         status: campaign.status,
+        paceStatus: campaign.paceStatus,
+        discountLabel,
         goLiveAt: campaign.goLiveAt,
         expiresAt: campaign.expiresAt,
         daysRemaining,
@@ -228,8 +285,9 @@ exports.getCampaignDetail = async (req, res) => {
         tier2Count,
         activatedByName: campaign.activatedBy?.name || null,
       },
-      csvImportBatches: csvBatches.map((b) => ({
+      csvImportBatches: csvBatches.map((b, index) => ({
         _id: b._id,
+        batchNumber: index + 1,
         fileName: b.fileName,
         imported: b.imported || 0,
         duplicates: b.duplicates || 0,
@@ -380,12 +438,13 @@ exports.pauseCampaign = async (req, res) => {
   }
 };
 
-// PUT /api/admin/campaigns/:id/extend — Task 7.4 — Body: { extraDays: 7 }
+// PUT /api/admin/campaigns/:id/extend — Task 7.4 — Body: { extraDays: 7, reason?: "..." }
 exports.extendCampaign = async (req, res) => {
   try {
     const { id } = req.params;
     const adminId = req.user._id;
     const extraDays = Number(req.body.extraDays);
+    const reason = typeof req.body.reason === "string" ? req.body.reason.trim() : "";
 
     if (!Number.isFinite(extraDays) || extraDays <= 0) {
       return res.status(400).json({ success: false, message: "extraDays must be a positive number" });
@@ -417,7 +476,9 @@ exports.extendCampaign = async (req, res) => {
       entityId: campaign._id,
       before: { expiresAt: beforeExpiresAt },
       after: { expiresAt: campaign.expiresAt },
-      reason: `Admin extended campaign by ${extraDays} days`,
+      reason: reason
+        ? `Admin extended campaign by ${extraDays} days — ${reason}`
+        : `Admin extended campaign by ${extraDays} days`,
     });
 
     try {

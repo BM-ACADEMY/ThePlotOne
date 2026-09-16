@@ -31,7 +31,16 @@ const subscriptionPlanSchema = new mongoose.Schema(
       default: 0
     }, // Campaign plans only — guaranteed lead count per Pricing V7 §2.1 (22/50/85).
        // 0/unset means this plan isn't configured for campaigns yet.
-    duration: { 
+    tier2Minimum: {
+      type: Number,
+      default: 0
+    }, // Campaign plans only — minimum ready-buyer (Tier 2) leads within committedMinimum.
+    planCategory: {
+      type: String,
+      enum: ["promoter", "agent"],
+      default: "agent"
+    }, // Distinguishes promoter campaign plans from agent/owner listing plans.
+    duration: {
       type: Number, 
       required: false, // Optional for lifetime plans
       default: 30 

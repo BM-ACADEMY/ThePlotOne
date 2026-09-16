@@ -36,6 +36,8 @@ const CouponManager = lazy(() => import("./pages/CouponManager"));
 const CampaignManagement = lazy(() => import("./pages/CampaignManagement"));
 const CampaignDetail = lazy(() => import("./pages/CampaignDetail"));
 const ImportLeads = lazy(() => import("./pages/campaigns/ImportLeads"));
+const AllLeads = lazy(() => import("./pages/campaigns/AllLeads"));
+const AuditLog = lazy(() => import("./pages/AuditLog"));
 
 const PageLoader = () => <Loader variant="panel" />;
 
@@ -79,6 +81,16 @@ const AdminRoute = () => {
           <Route path="payment-history" element={<PaymentHistory />} />
           <Route path="coupons" element={<CouponManager />} />
           <Route path="campaigns" element={<CampaignManagement />} />
+          {/* Task 1.2 — Dashboard's "Pending Activation" card links here.
+              CampaignManagement already renders the pending queue at the top of
+              the same list view, so this reuses it rather than duplicating a page. */}
+          <Route path="campaigns/pending" element={<CampaignManagement />} />
+          {/* Task 5.1 — must be registered before campaigns/:id so "leads"
+              isn't swallowed as a campaign id; React Router v6 ranks static
+              segments above dynamic ones regardless of order, but keeping it
+              here reads correctly either way. */}
+          <Route path="campaigns/leads" element={<AllLeads />} />
+          <Route path="audit-log" element={<AuditLog />} />
           <Route path="campaigns/:id" element={<CampaignDetail />} />
           <Route path="campaigns/:id/import-leads" element={<ImportLeads />} />
 

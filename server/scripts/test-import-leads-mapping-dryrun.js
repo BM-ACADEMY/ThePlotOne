@@ -123,6 +123,19 @@ async function run() {
       : `FAIL: dryRun counts wrong: ${JSON.stringify(rDry.body)}`
   );
 
+  // Task 4.3 — the preview table's row data
+  console.log(
+    Array.isArray(rDry.body.previewRows) &&
+      rDry.body.previewRows.length === 2 &&
+      rDry.body.previewRows[0].fullName === "Dry Lead One" &&
+      rDry.body.previewRows[0].phoneNumber === "9100000002" &&
+      rDry.body.previewRows[0].preferredLocation === "Area1" &&
+      rDry.body.previewRows[0].minBudget === 1000000 &&
+      rDry.body.previewRows[0].maxBudget === 2000000
+      ? "PASS: dryRun returns previewRows with the mapped data for the importable rows"
+      : `FAIL: previewRows wrong: ${JSON.stringify(rDry.body.previewRows)}`
+  );
+
   const noBatchFromDry = await CsvImportBatch.findOne({ campaign: campaign._id });
   console.log(
     !noBatchFromDry ? "PASS: dryRun creates no CsvImportBatch record" : "FAIL: dryRun created a CsvImportBatch"

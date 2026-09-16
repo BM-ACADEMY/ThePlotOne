@@ -16,7 +16,7 @@ import {
   Card,
   Tabs
 } from "antd";
-import { Plus, Edit, Trash2, CreditCard, CheckCircle, MoreVertical, IndianRupee, ShieldCheck, XCircle, Star, Check, X, Filter } from "lucide-react";
+import { Plus, Edit, Trash2, CreditCard, CheckCircle, MoreVertical, IndianRupee, ShieldCheck, XCircle, Star, Check, X, Filter, Percent } from "lucide-react";
 import axios from "axios";
 import Loader from "@/components/Common/Loader";
 
@@ -327,6 +327,38 @@ const SubscriptionPlanManager = () => {
         )}
       </div>
 
+      {/* Task 7.2 — Volume Discount Display. Mirrors the discount ladder
+          actually enforced in server/utils/discountUtils.js (getVolumeDiscount)
+          and the Starter-block rule in subscriptionController.js's
+          createCampaignOrder — not invented copy. */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 md:p-8 mt-8">
+        <h2 className="text-base font-bold text-gray-900 flex items-center gap-2 mb-1">
+          <div className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg">
+            <Percent size={16} />
+          </div>
+          Volume Discount Rules
+        </h2>
+        <p className="text-gray-500 text-sm mb-5">Auto-applied at checkout, based on the promoter's active campaign count.</p>
+
+        <div className="divide-y divide-gray-100 border border-gray-100 rounded-xl overflow-hidden mb-4">
+          {[
+            { label: "2nd campaign (same account)", value: "20% off" },
+            { label: "3rd campaign (same account)", value: "25% off" },
+            { label: "4th campaign (same account)", value: "30% off" },
+            { label: "5th+ campaign", value: "Enterprise only (all plans blocked)" },
+          ].map((row) => (
+            <div key={row.label} className="flex items-center justify-between px-4 py-3 bg-gray-50/50">
+              <span className="text-sm text-gray-700">{row.label}</span>
+              <span className="text-sm font-bold text-gray-900">{row.value}</span>
+            </div>
+          ))}
+        </div>
+
+        <p className="text-xs text-gray-400 font-medium">
+          Note: 2nd campaign onwards — Starter plan is disabled. Growth minimum required.
+        </p>
+      </div>
+
       <Modal
         title={editingPlan ? "Edit Subscription Plan" : "Create Subscription Plan"}
         open={isModalOpen}
@@ -438,6 +470,38 @@ const SubscriptionPlanManager = () => {
                     e.preventDefault();
                   }
                 }}
+              />
+            </Form.Item>
+
+            <Form.Item
+              name="tier2Minimum"
+              label="Tier 2 Minimum Leads (Campaign plans only)"
+              tooltip="Minimum ready-buyer (Tier 2) leads guaranteed within the committed minimum. Leave 0 for non-campaign plans."
+            >
+              <InputNumber
+                className="w-full"
+                placeholder="0"
+                min={0}
+                precision={0}
+                onKeyPress={(e) => {
+                  if (!/[0-9]/.test(e.key)) {
+                    e.preventDefault();
+                  }
+                }}
+              />
+            </Form.Item>
+
+            <Form.Item
+              name="planCategory"
+              label="Plan Type"
+              tooltip="Distinguishes promoter campaign plans (this admin module) from agent/owner listing plans."
+              initialValue="agent"
+            >
+              <Select
+                options={[
+                  { value: "promoter", label: "Promoter Campaign" },
+                  { value: "agent", label: "Agent" },
+                ]}
               />
             </Form.Item>
 
