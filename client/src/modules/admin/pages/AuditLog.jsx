@@ -21,13 +21,15 @@ const ACTION_OPTIONS = [
   "LEAD_LIMIT_REACHED",
   "LEAD_STATUS_UPDATED",
   "PAYMENT_RECEIVED",
+  "SELLER_CREATED_BY_ADMIN",
+  "USER_PROMOTED_TO_SELLER",
 ].map((v) => ({ value: v, label: v }));
 
 // Requirement is the real model name for a Lead, and CsvImportBatch for a
 // CSV import — surfaced here under the names the rest of the admin UI
 // already uses for them (AllLeads.jsx, ImportLeads.jsx), not the internal
 // Mongoose model name.
-const ENTITY_LABEL = { Campaign: "Campaign", Requirement: "Lead", CsvImportBatch: "CSV Import" };
+const ENTITY_LABEL = { Campaign: "Campaign", Requirement: "Lead", CsvImportBatch: "CSV Import", User: "Seller" };
 const ENTITY_OPTIONS = Object.entries(ENTITY_LABEL).map(([value, label]) => ({ value, label }));
 
 const ACTOR_ROLE_COLOR = { admin: "blue", promoter: "green", system: "default" };

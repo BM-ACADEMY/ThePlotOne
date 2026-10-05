@@ -3,6 +3,7 @@ const User = require("../models/User");
 const Role = require("../models/Role");
 const BusinessType = require("../models/BusinessType");
 const BuilderProfile = require("../models/BuilderProfile");
+const mongoose = require("mongoose");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const fs = require("fs");
@@ -11,6 +12,7 @@ const axios = require("axios");
 const Property = require("../models/Property");
 const Subscription = require("../models/Subscription");
 const { sendBadgeVerificationNotification, sendBadgeRequestNotificationToAdmin, sendSubscriptionExpiredNotification } = require("../utils/emailService");
+const { writeAudit } = require("../utils/auditLogger");
 
 // Generate JWT
 const generateToken = (id) => {
@@ -373,6 +375,19 @@ exports.updateUser = async (req, res) => {
     const userId = req.params.id;
     let updateData = { ...req.body };
 
+    // Restriction: Non-admins can only update their own record, and cannot change privileged fields
+    const isAdmin = req.user && (req.user.isSuperAdmin || req.user.role_id?.role_name?.toLowerCase() === "admin");
+    if (!isAdmin) {
+      if (String(req.user._id) !== String(userId)) {
+        return res.status(403).json({ error: "Not authorized to update this user" });
+      }
+      delete updateData.role_id;
+      delete updateData.isVerified;
+      delete updateData.badgeVerified;
+      delete updateData.status;
+      delete updateData.createdBy;
+    }
+
     // Restriction: Badge-verified sellers cannot change their businessType
     const existingUser = await User.findById(userId).populate("builderProfile");
     if (!existingUser) return res.status(404).json({ error: "User not found" });
@@ -661,8 +676,15 @@ exports.createUserByAdmin = async (req, res) => {
     const existingUser = await User.findOne({ phone });
     if (existingUser) return res.status(400).json({ error: "User already exists with this phone number" });
 
-    // Only Super Admins can assign permissions or set Super Admin status
     const requester = await User.findById(req.user.id);
+
+    // Only Super Admins can create admin-role accounts
+    const targetRole = role_id ? await Role.findById(role_id) : null;
+    if (targetRole?.role_name?.toLowerCase() === "admin" && !requester?.isSuperAdmin) {
+      return res.status(403).json({ error: "Access denied. Super Admin only." });
+    }
+
+    // Only Super Admins can assign permissions or set Super Admin status
     const finalPermissions = requester?.isSuperAdmin ? (permissions || []) : [];
     const finalIsSuperAdmin = requester?.isSuperAdmin ? (isSuperAdmin || false) : false;
 
@@ -681,6 +703,154 @@ exports.createUserByAdmin = async (req, res) => {
     await user.save();
     res.status(201).json({ success: true, message: "User created by admin", user });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.createSellerByAdmin = async (req, res) => {
+  try {
+    const { businessType, assignedAdmin } = req.body;
+    const name = typeof req.body.name === "string" ? req.body.name.trim() : "";
+    const phone = typeof req.body.phone === "string" ? req.body.phone.trim() : "";
+    const badgeVerified = req.body.badgeVerified === true || req.body.badgeVerified === "true";
+
+    if (!name) return res.status(400).json({ error: "Name is required" });
+    if (!/^\d{10}$/.test(phone)) {
+      return res.status(400).json({ error: "Please enter a valid 10-digit phone number" });
+    }
+    if (!businessType) return res.status(400).json({ error: "Business Type is required" });
+
+    const btExists = mongoose.isValidObjectId(businessType)
+      ? await BusinessType.findOne({ _id: businessType, status: "active" })
+      : null;
+    if (!btExists) return res.status(400).json({ error: "Invalid Business Type" });
+
+    const sellerRole = await Role.findOne({ role_name: "seller" });
+    if (!sellerRole) return res.status(500).json({ error: "Seller role missing" });
+
+    // Only a plain user can be promoted; sellers, admins and any other role are rejected
+    const existingUser = await User.findOne({ phone }).populate("role_id");
+    if (existingUser) {
+      const existingRole = existingUser.role_id?.role_name?.toLowerCase();
+      if (existingRole === "seller") {
+        return res.status(400).json({ error: "A seller already exists with this phone number" });
+      }
+      if (existingUser.isSuperAdmin || existingRole === "admin") {
+        return res.status(400).json({ error: "An admin already exists with this phone number" });
+      }
+      if (existingRole !== "user") {
+        return res.status(400).json({ error: "User already exists with this phone number" });
+      }
+    }
+
+    // Auto-assign to sub-admin creator; only Super Admins can choose the assigned admin
+    const requester = await User.findById(req.user.id);
+    let finalAssignedAdmin = requester?._id;
+    if (requester?.isSuperAdmin) {
+      finalAssignedAdmin = undefined;
+      if (assignedAdmin) {
+        const adminUser = mongoose.isValidObjectId(assignedAdmin)
+          ? await User.findById(assignedAdmin).populate("role_id")
+          : null;
+        const isAdminUser = adminUser &&
+          (adminUser.isSuperAdmin || adminUser.role_id?.role_name?.toLowerCase() === "admin");
+        if (!isAdminUser) return res.status(400).json({ error: "Invalid assigned admin" });
+        finalAssignedAdmin = adminUser._id;
+      }
+    }
+
+    // Promote an existing plain user to seller
+    if (existingUser) {
+      const before = {
+        role: existingUser.role_id?.role_name,
+        name: existingUser.name,
+        businessType: existingUser.businessType,
+        assignedAdmin: existingUser.assignedAdmin,
+      };
+
+      existingUser.role_id = sellerRole._id;
+      existingUser.businessType = btExists._id;
+      existingUser.isVerified = true;
+      existingUser.createdBy = req.user.id;
+      existingUser.assignedAdmin = finalAssignedAdmin;
+      if (badgeVerified) existingUser.badgeVerified = true;
+      // Keep a name the user chose themselves; replace only the OTP-flow default
+      if (!existingUser.name || existingUser.name === "User") existingUser.name = name;
+      if (!existingUser.customId) {
+        existingUser.customId = `USER-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+      }
+
+      await existingUser.save();
+
+      try {
+        await writeAudit({
+          actor: req.user.id,
+          actorRole: "admin",
+          action: "USER_PROMOTED_TO_SELLER",
+          entity: "User",
+          entityId: existingUser._id,
+          before,
+          after: {
+            role: "seller",
+            name: existingUser.name,
+            businessType: existingUser.businessType,
+            assignedAdmin: existingUser.assignedAdmin,
+          },
+          reason: "Admin promoted existing user to seller",
+        });
+      } catch (auditError) {
+        console.error("User-promoted audit error (createSellerByAdmin):", auditError);
+      }
+
+      await existingUser.populate(["role_id", "businessType"]);
+      return res.json({
+        success: true,
+        status: "promoted",
+        message: "Existing user promoted to seller",
+        user: existingUser,
+      });
+    }
+
+    const user = new User({
+      name,
+      phone,
+      role_id: sellerRole._id,
+      businessType: btExists._id,
+      badgeVerified,
+      isVerified: true, // Admin-created users are pre-verified
+      createdBy: req.user.id,
+      customId: `USER-${crypto.randomBytes(3).toString("hex").toUpperCase()}`,
+      assignedAdmin: finalAssignedAdmin,
+    });
+
+    await user.save();
+
+    try {
+      await writeAudit({
+        actor: req.user.id,
+        actorRole: "admin",
+        action: "SELLER_CREATED_BY_ADMIN",
+        entity: "User",
+        entityId: user._id,
+        before: null,
+        after: {
+          role: "seller",
+          name: user.name,
+          businessType: user.businessType,
+          assignedAdmin: user.assignedAdmin,
+        },
+        reason: "Admin created seller account",
+      });
+    } catch (auditError) {
+      console.error("Seller-created audit error (createSellerByAdmin):", auditError);
+    }
+
+    await user.populate(["role_id", "businessType"]);
+    res.status(201).json({ success: true, status: "created", message: "Seller created by admin", user });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ error: "User already exists with this phone number" });
+    }
     res.status(500).json({ error: error.message });
   }
 };
