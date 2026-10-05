@@ -46,6 +46,7 @@ import api from "@/services/api";
 import { useSocket } from "@/context/SocketContext";
 import { useAuth } from "@/context/AuthContext";
 import Loader from "@/components/Common/Loader";
+import AddSellerModal from "../components/AddSellerModal";
 import moment from "moment";
 
 const { Title, Text } = Typography;
@@ -87,6 +88,7 @@ const SellerList = () => {
   const [selectedSeller, setSelectedSeller] = useState(null);
   const [isDetailModalVisible, setIsDetailModalVisible] = useState(false);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [isAddSellerModalOpen, setIsAddSellerModalOpen] = useState(false);
   const [assigningLoading, setAssigningLoading] = useState(false);
   const [campaignModalVisible, setCampaignModalVisible] = useState(false);
   const [campaignSummary, setCampaignSummary] = useState({ projects: [], paymentHistory: [] });
@@ -612,6 +614,15 @@ const SellerList = () => {
             </div>
           )}
         </div>
+        <Button
+          type="primary"
+          icon={<UserPlus size={18} />}
+          size="large"
+          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 border-none shadow-md h-11"
+          onClick={() => setIsAddSellerModalOpen(true)}
+        >
+          Add Seller
+        </Button>
       </div>
 
       <Row gutter={[24, 24]} className="mb-8">
@@ -690,6 +701,16 @@ const SellerList = () => {
           />
         </div>
       </Card>
+
+      {/* Add Seller Modal */}
+      <AddSellerModal
+        open={isAddSellerModalOpen}
+        onClose={() => setIsAddSellerModalOpen(false)}
+        onSuccess={fetchSellers}
+        businessTypes={businessTypes}
+        admins={admins}
+        defaultBusinessType={typeFilter}
+      />
 
       {/* Assignment Modal */}
       <Modal

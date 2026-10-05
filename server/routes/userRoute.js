@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const userController = require("../controllers/userController");
-const { protect } = require("../middleware/authMiddleware");
+const { protect, admin } = require("../middleware/authMiddleware");
 const upload = require("../middleware/uploadMiddleware");
 
 // Auth Routes
@@ -19,8 +19,8 @@ router.get("/public-user/:id", userController.getPublicUserById);
 router.get("/public-admins", userController.getPublicAdmins);
 
 // User Management Routes (Protected)
-router.get("/fetch-all-user", protect, userController.getUsers); // Legacy support
-router.get("/get-all-users", protect, userController.getUsers);
+router.get("/fetch-all-user", protect, admin, userController.getUsers); // Legacy support
+router.get("/get-all-users", protect, admin, userController.getUsers);
 router.get("/get-pending-badge-count", protect, userController.getPendingBadgeRequestsCount);
 router.get("/fetch-notification-counts", protect, userController.getAdminNotificationCounts);
 
@@ -38,7 +38,7 @@ router.put(
 );
 router.put("/upgrade-to-seller", protect, userController.upgradeToSeller);
 
-router.delete("/delete-user-by-id/:id", protect, userController.deleteUser);
+router.delete("/delete-user-by-id/:id", protect, admin, userController.deleteUser);
 
 // Wishlist Routes
 router.post("/add-to-wishlist", protect, userController.addToWishlist);
@@ -50,7 +50,8 @@ router.post(
 router.get("/wishlist", protect, userController.getWishlist);
 
 // Admin Routes
-router.post("/create-user-by-admin", protect, userController.createUserByAdmin);
+router.post("/create-user-by-admin", protect, admin, userController.createUserByAdmin);
+router.post("/create-seller-by-admin", protect, admin, userController.createSellerByAdmin);
 router.put("/bulk-assign-admin", protect, userController.bulkAssignAdmin);
 
 // Verification Request
