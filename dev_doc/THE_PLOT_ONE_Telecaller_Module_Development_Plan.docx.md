@@ -31,7 +31,7 @@ Telecaller doesn't exist as a role at all yet — seeded roles are `agent, build
 | M6 | Callbacks | 3 tasks | P1 | 0 EXISTS · 0 MODIFY · 3 NEW |
 | M7 | Telecaller Panel UI | 6 tasks | P1 | 0 EXISTS · 0 MODIFY · 6 NEW |
 | M8 | Notifications (Telecaller) | 3 tasks | P2 | 0 EXISTS · 0 MODIFY · 3 NEW |
-| M9 | Admin — Telecaller Management | 3 tasks | P1 | 0 EXISTS · 0 MODIFY · 3 NEW |
+| M9 | Admin — Telecaller Management | 4 tasks | P1 | 0 EXISTS · 1 MODIFY · 3 NEW |
 | M10 | Telecaller Portal Layout | 2 tasks | P1 | 0 EXISTS · 0 MODIFY · 2 NEW |
 | M11 | Automation / Cron Jobs | 2 tasks | P2 | 0 EXISTS · 0 MODIFY · 2 NEW |
 | M12 | Audit Log Integration | 1 task | P0 | 0 EXISTS · 0 MODIFY · 1 NEW |
@@ -41,9 +41,9 @@ Telecaller doesn't exist as a role at all yet — seeded roles are `agent, build
 |  | Count |
 | :---- | :---- |
 | **Total Modules** | **12** |
-| **Total Tasks** | **38** |
+| **Total Tasks** | **39** |
 | ✅ EXISTS — no change | 0 |
-| 🔧 MODIFY — change existing code | 4 |
+| 🔧 MODIFY — change existing code | 5 |
 | 🆕 NEW — build from scratch | 34 |
 
 ### Phase Overview
@@ -51,7 +51,7 @@ Telecaller doesn't exist as a role at all yet — seeded roles are `agent, build
 | Phase | Focus | Modules Involved | Task Count |
 | :---- | :---- | :---- | :---- |
 | **Phase 1 (P0)** | Core backend — models, role guard, qualification + in-house hold engine, audit log | M1, M2, M3, M12 | 14 tasks |
-| **Phase 2 (P1)** | UI complete — catch-all, verification, callbacks, panel screens, admin management, portal | M4, M5, M6, M7, M9, M10 | 19 tasks |
+| **Phase 2 (P1)** | UI complete — catch-all, verification, callbacks, panel screens, admin management, portal | M4, M5, M6, M7, M9, M10 | 20 tasks |
 | **Phase 3 (P2)** | Automation & polish — reminders, stale-queue alerts | M8, M11 | 5 tasks |
 
 ## CONFIRMED TELECALLER FLOW (Reference)
@@ -210,7 +210,8 @@ Reuses the existing `getPropertyMatchQuery` helper already built in `requirement
 
 ```
 if campaignId is already set on this requirement:
-  routingStage = 'awaiting_campaign_match' immediately  // no hold, no pitch — see Task 3.6
+  leave the requirement unchanged  // no hold, no pitch — see Task 3.6
+  // do NOT change routingStage, inHouseHoldStatus, matchedInHouseProperty or inHouseHoldExpiresAt
   return
 
 const match = await Property.findOne({ ...matchQuery, isInHouseInventory: true });
@@ -428,7 +429,7 @@ High-priority ping the moment a lead lands in the catch-all queue (Task 4.1) —
 
 # MODULE 9 — ADMIN: TELECALLER MANAGEMENT
 
-**Module Estimated Time: 3 hr (3 tasks)**
+**Module Estimated Time: 4 hr 15 mins (4 tasks)**
 
 ## TASK 9.1 — Telecaller Performance Overview 🆕 NEW
 
@@ -453,6 +454,56 @@ Admin sets `dailyCallTarget`/`dailyQualifyTarget`/`dailyConvertTarget` per telec
 **File:** client/src/modules/admin/pages/telecaller/InvalidClaims.jsx
 
 All `InvalidLeadClaim`s across all telecallers, with review status.
+
+## TASK 9.4 — Add Telecaller from Admin Panel (Staff Creation UI) 🔧 MODIFY
+
+**Estimated Time:** 1 hr 15 mins
+
+**File:** client/src/modules/admin/pages/AdminList.jsx
+
+**Depends on:** Task 2.2 (backend unchanged — no new API, no change to its authorization)
+
+**Current:** Admin Management has "Add New Admin" (Super Admin only), which posts to `POST /api/users/create-user-by-admin` with the admin `role_id`. There is no way to create a Telecaller from the Admin Panel — Task 2.2 is API-only.
+
+**Change:** extend the existing Add New Admin flow into a generic staff-creation flow rather than building a separate Telecaller page.
+
+```
+┌──────────────── Add New Staff ─────────────────┐
+│ Full Name *          [                       ] │
+│ Phone Number *   +91 [ 10-digit number       ] │
+│ Role *               [ Admin / Telecaller  ▼ ] │
+│                                                │
+│ Role = Admin      → Role & Access Control      │
+│                     (Super Admin + permissions,│
+│                      exactly as today)         │
+│ Role = Telecaller → no access-control section  │
+│                                                │
+│                     [ Cancel ] [ Create Staff ]│
+└────────────────────────────────────────────────┘
+```
+
+- Rename the button and modal from "Add New Admin" to "Add New Staff". The page title, sidebar entry and `/admin/admins` route stay as they are (the route is stored as a permission key on existing sub-admins).
+- Add a Role selector: Admin (default) / Telecaller.
+- Role = Admin: behaves exactly as the current flow — same request, same Super Admin checkbox and permission selection.
+- Role = Telecaller: hide Super Admin access and the permission selection; submit `{ name, phone, role: "telecaller" }` to `POST /api/users/create-user-by-admin`.
+- Add a **Telecallers** tab next to Super Admins / Support Teams, listing users whose role is `telecaller` (existing `GET /api/users/get-all-users?role=telecaller`): Name, Phone, Created By, Status.
+- Add a separate **Telecallers** summary count on the page = number of users whose role is `telecaller`. Telecallers are NOT included in Total Admins.
+- Server errors (for example "User already exists with this phone number") are shown as in the current flow.
+
+**Security rules:**
+- The "Add New Staff" button stays Super Admin only — sub-admins do not see it. (Task 2.2's backend authorization is not changed by this task.)
+- The Telecaller request never sends `isSuperAdmin`, `permissions` or a client-chosen `role_id`, including when those were ticked before switching Role to Telecaller.
+- Task 2.2's server rules remain the source of truth: `isSuperAdmin: false`, no permissions, `createdBy` = acting admin, `isVerified: true`.
+- Telecaller rows do not show the admin-specific "Edit Access" / "Revoke Admin" actions.
+
+**Not included — Delete on Telecaller rows:** the existing `DELETE /api/users/delete-user-by-id/:id` is a generic hard delete (removes the user record and profile image only, no role-specific handling, no clean-up of related records). Once a telecaller has activity, `Callback.telecaller`, `Requirement.qualifiedBy` and `InvalidLeadClaim.reviewedBy` would point at a missing user and the telecaller's history would drop out of the Task 9.1 performance figures. No task in this plan requires deleting a telecaller, so no delete (or deactivate) action is added here. See STILL NEEDS CONFIRMATION.
+
+**Acceptance criteria:**
+- Super Admin creates a staff member with Role = Telecaller → user has the `telecaller` role, `isSuperAdmin: false`, no permissions, `createdBy` = that admin, `isVerified: true`, and passes the Task 2.1 guard.
+- Super Admin creates a staff member with Role = Admin → identical to the current Add New Admin behaviour, including Super Admin access and permissions.
+- The new telecaller appears in the Telecallers tab and the Telecallers count increases; Total Admins does not change.
+- A sub-admin does not see the "Add New Staff" button.
+- Telecaller rows offer no Edit Access, Revoke Admin or Delete action.
 
 # MODULE 10 — TELECALLER PORTAL LAYOUT
 
@@ -549,7 +600,7 @@ CALLBACK_SCHEDULED / CALLBACK_COMPLETED
 | Verification & Invalid-Lead Handling | 5.1 to 5.3 | 🟡 P1 |
 | Callbacks | 6.1 to 6.3 | 🟡 P1 |
 | Telecaller Panel UI (all 6 screens) | 7.1 to 7.6 | 🟡 P1 |
-| Admin — Telecaller Management | 9.1 to 9.3 | 🟡 P1 |
+| Admin — Telecaller Management | 9.1 to 9.4 | 🟡 P1 |
 | Telecaller Portal Layout | 10.1, 10.2 | 🟡 P1 |
 
 ## PHASE 3 — Automation & Polish
@@ -564,9 +615,9 @@ CALLBACK_SCHEDULED / CALLBACK_COMPLETED
 | Status | Count |
 | :---- | :---- |
 | ✅ EXISTS — no change | 0 |
-| 🔧 MODIFY — existing code changes | 4 |
+| 🔧 MODIFY — existing code changes | 5 |
 | 🆕 NEW — build from scratch | 34 |
-| **Total** | **38 tasks** |
+| **Total** | **39 tasks** |
 
 # STILL NEEDS CONFIRMATION
 
@@ -578,6 +629,7 @@ CALLBACK_SCHEDULED / CALLBACK_COMPLETED
 | Lead unification across Requirement/WhatsappLead/Enquiry/RequestCall — confirmed out of scope for this plan, but still an open gap for the platform overall | Scope boundary |
 | In-house inventory sourcing/CRUD — confirmed out of scope for this plan (separate module), this plan only reads the `isInHouseInventory` flag | 1.5, 3.2 |
 | 2–3% in-house brokerage invoicing — ties to the Phase 3 Finance/GST module, not planned anywhere yet | 3.4 |
+| How should a telecaller account be removed or deactivated? The existing delete-user API is a hard delete with no clean-up of callbacks/qualifications, so Task 9.4 adds no delete action | 9.4 |
 
 *Development Plan prepared: 05 Sep 2026*
 

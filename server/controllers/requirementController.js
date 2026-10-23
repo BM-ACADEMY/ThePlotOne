@@ -248,6 +248,9 @@ exports.deleteRequirement = async (req, res) => {
 };
 
 // Helper function to build the property matching query
+// Requirement text is user-provided — match it literally, never as a regex pattern
+const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 const getPropertyMatchQuery = (sellerId, requirement, matchType = "exact") => {
   if (!requirement) return null;
 
@@ -267,7 +270,7 @@ const getPropertyMatchQuery = (sellerId, requirement, matchType = "exact") => {
     status: { $in: ["Active", "Pending", "Edit Pending Approval"] },
     "basicInfo.category": requirement.category,
     "basicInfo.usageType": requirement.usageType,
-    "basicInfo.propertyType": { $regex: requirement.propertyType.split(' / ')[0], $options: "i" },
+    "basicInfo.propertyType": { $regex: escapeRegex(requirement.propertyType.split(' / ')[0]), $options: "i" },
     $and: [
       {
         $or: [
@@ -300,7 +303,7 @@ const getPropertyMatchQuery = (sellerId, requirement, matchType = "exact") => {
       }
 
       if (targetLocality && targetLocality.trim() !== "") {
-        const locRegex = new RegExp(targetLocality.trim(), "i");
+        const locRegex = new RegExp(escapeRegex(targetLocality.trim()), "i");
         matchQuery.$and.push({
           $or: [
             { "location.locality": locRegex },
@@ -332,7 +335,7 @@ const getPropertyMatchQuery = (sellerId, requirement, matchType = "exact") => {
   } else if (requirement.preferredLocation && requirement.preferredLocation.trim() !== "") {
     // Step 3: Text-based Regex Fallback (for old data or missing coordinates)
     const locTerm = requirement.preferredLocation.trim();
-    const locRegex = new RegExp(locTerm, "i");
+    const locRegex = new RegExp(escapeRegex(locTerm), "i");
     matchQuery.$and.push({
       $or: [
         { "location.city": locRegex },
@@ -344,6 +347,7 @@ const getPropertyMatchQuery = (sellerId, requirement, matchType = "exact") => {
 
   return matchQuery;
 };
+exports.getPropertyMatchQuery = getPropertyMatchQuery;
 
 // Get subscription stats for lead sharing (Admin)
 exports.getSubscriptionStats = async (req, res) => {

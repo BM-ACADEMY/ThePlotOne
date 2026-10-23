@@ -125,6 +125,9 @@ exports.createProperty = async (req, res) => {
       createdBy: isAdmin ? req.user._id : (req.body.createdBy || null),
     };
 
+    // In-house inventory is the platform's own stock — only an admin may flag it
+    if (!isAdmin) delete propertyData.isInHouseInventory;
+
     const property = new Property(propertyData);
     await property.save();
 
@@ -1184,6 +1187,10 @@ exports.updateProperty = async (req, res) => {
     delete updates.images;
     delete updates.images_to_delete;
     delete updates.media; // We will construct this manually
+    // In-house inventory is the platform's own stock — only an admin may flag it
+    if (!(req.user?.isSuperAdmin || req.user?.role_id?.role_name?.toLowerCase() === "admin")) {
+      delete updates.isInHouseInventory;
+    }
 
     // Apply nested parsing
     if (updates.location) updates.location = removeEmptyStrings(parseJSON(updates.location));

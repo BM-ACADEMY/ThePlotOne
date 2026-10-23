@@ -52,6 +52,10 @@ const userSchema = new mongoose.Schema(
       type: Number,
       default: 0
     },
+    // Telecaller daily targets — set per telecaller by an admin
+    dailyCallTarget: { type: Number },
+    dailyQualifyTarget: { type: Number },
+    dailyConvertTarget: { type: Number },
   },
 
   { timestamps: true },
