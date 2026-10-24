@@ -302,6 +302,67 @@ const runDailySelfAudit = async () => {
   return summary;
 };
 
+// Telecaller Module Task 3.5 — In-House Hold Expiry Sweeper. Standalone
+// function (not inlined in cron.schedule) so it can be called directly from a
+// test script, same as the campaign checks above.
+//
+// Releases organic leads whose in-house hold clock has run out with no
+// telecaller pitch outcome: routingStage -> awaiting_campaign_match,
+// inHouseHoldStatus -> released. The hold condition is repeated in the write
+// itself, so a pitch outcome submitted at the same moment (Task 3.4) and this
+// sweeper can never both act on the same hold. Campaign leads are never put on
+// hold; the campaignId filter keeps this job structurally unable to move one.
+const runInHouseHoldExpiryCheck = async () => {
+  const now = new Date();
+  const expiredHolds = await Requirement.find({
+    inHouseHoldStatus: "holding",
+    inHouseHoldExpiresAt: { $lte: now },
+    campaignId: null,
+  }).select("_id");
+
+  const results = [];
+
+  for (const { _id } of expiredHolds) {
+    const previous = await Requirement.findOneAndUpdate(
+      { _id, inHouseHoldStatus: "holding", inHouseHoldExpiresAt: { $lte: now }, campaignId: null },
+      { $set: { routingStage: "awaiting_campaign_match", inHouseHoldStatus: "released" } },
+      { new: false }
+    );
+    // A telecaller submitted a pitch outcome between the find and this write
+    if (!previous) continue;
+
+    // AuditLog.actor is required, so — as with the campaign cron entries — a
+    // system action borrows a related user id (the telecaller who qualified
+    // the lead); actorRole 'system' is what marks it as not their action.
+    try {
+      await writeAudit({
+        actor: previous.qualifiedBy,
+        actorRole: "system",
+        action: "IN_HOUSE_HOLD_RELEASED",
+        entity: "Requirement",
+        entityId: previous._id,
+        before: {
+          routingStage: previous.routingStage,
+          inHouseHoldStatus: previous.inHouseHoldStatus,
+          inHouseHoldExpiresAt: previous.inHouseHoldExpiresAt,
+        },
+        after: {
+          routingStage: "awaiting_campaign_match",
+          inHouseHoldStatus: "released",
+          matchedInHouseProperty: previous.matchedInHouseProperty,
+        },
+        reason: "In-house hold expired — auto-released",
+      });
+    } catch (auditError) {
+      console.error("Hold-expiry audit error (runInHouseHoldExpiryCheck):", auditError);
+    }
+
+    results.push({ requirementId: previous._id, outcome: "released" });
+  }
+
+  return results;
+};
+
 const initCronJobs = (io) => {
   // Schedule task to run every minute for automated lead sharing
   cron.schedule("*/5 * * * * *", async () => {
@@ -562,6 +623,19 @@ const initCronJobs = (io) => {
     }
   });
 
+  // Schedule task to run every 15 minutes — Telecaller Module Task 3.5
+  // (the `inhouseHoldExpiry` job)
+  cron.schedule("*/15 * * * *", async () => {
+    try {
+      const results = await runInHouseHoldExpiryCheck();
+      if (results.length > 0) {
+        console.log(`✅ In-house hold expiry: ${results.length} hold(s) released.`);
+      }
+    } catch (error) {
+      console.error("❌ Error in in-house hold expiry cron job:", error);
+    }
+  });
+
   console.log(
     "🚀 Property & Subscription cron jobs initialized.",
   );
@@ -572,4 +646,5 @@ module.exports = {
   runCampaignExpiryCheck,
   runLegacySubscriptionExpiryCheck,
   runDailySelfAudit,
+  runInHouseHoldExpiryCheck,
 };

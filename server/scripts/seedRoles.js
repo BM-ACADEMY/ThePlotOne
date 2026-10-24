@@ -11,7 +11,7 @@ const seedRoles = async () => {
     await mongoose.connect(process.env.MONGO_URI);
     console.log("Connected to MongoDB for seeding roles...");
 
-    const rolesToSeed = ["agent", "builder", "owner", "admin", "user", "seller"];
+    const rolesToSeed = ["agent", "builder", "owner", "admin", "user", "seller", "telecaller"];
     
     for (const roleName of rolesToSeed) {
       const exists = await Role.findOne({ role_name: roleName });

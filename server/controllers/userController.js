@@ -670,7 +670,16 @@ exports.getPendingBadgeRequestsCount = async (req, res) => {
 
 exports.createUserByAdmin = async (req, res) => {
   try {
-    const { name, phone, role_id, permissions, isSuperAdmin } = req.body;
+    const { name, phone, permissions, isSuperAdmin } = req.body;
+    let { role_id } = req.body;
+
+    // Telecaller staff accounts: `role: "telecaller"` is resolved on the server,
+    // so the admin does not have to send the role's id
+    if (req.body.role === "telecaller") {
+      const telecallerRole = await Role.findOne({ role_name: "telecaller" });
+      if (!telecallerRole) return res.status(500).json({ error: "Telecaller role missing" });
+      role_id = telecallerRole._id;
+    }
 
     // Check if user already exists
     const existingUser = await User.findOne({ phone });
@@ -683,10 +692,12 @@ exports.createUserByAdmin = async (req, res) => {
     if (targetRole?.role_name?.toLowerCase() === "admin" && !requester?.isSuperAdmin) {
       return res.status(403).json({ error: "Access denied. Super Admin only." });
     }
+    const isTelecallerAccount = targetRole?.role_name === "telecaller";
 
-    // Only Super Admins can assign permissions or set Super Admin status
-    const finalPermissions = requester?.isSuperAdmin ? (permissions || []) : [];
-    const finalIsSuperAdmin = requester?.isSuperAdmin ? (isSuperAdmin || false) : false;
+    // Only Super Admins can assign permissions or set Super Admin status,
+    // and a telecaller account never gets either
+    const finalPermissions = requester?.isSuperAdmin && !isTelecallerAccount ? (permissions || []) : [];
+    const finalIsSuperAdmin = requester?.isSuperAdmin && !isTelecallerAccount ? (isSuperAdmin || false) : false;
 
     const user = new User({
       name,

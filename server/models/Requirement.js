@@ -166,6 +166,46 @@ const requirementSchema = new mongoose.Schema(
     notifiedAt: {
       type: Date,
     },
+
+    // Telecaller qualification — set for organic leads; CSV-imported campaign
+    // leads already default to tier1 (see `tier`) and aren't re-tiered
+    qualifiedTier: {
+      type: String,
+      enum: ["tier1", "tier2"],
+    },
+    qualificationNotes: {
+      type: String,
+      trim: true,
+    },
+    qualifiedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    qualifiedAt: {
+      type: Date,
+    },
+
+    // In-house hold
+    inHouseHoldStatus: {
+      type: String,
+      enum: ["not_applicable", "holding", "pitched_interested", "pitched_not_interested", "released"],
+      default: "not_applicable",
+    },
+    inHouseHoldExpiresAt: {
+      type: Date,
+    },
+    matchedInHouseProperty: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Property",
+    },
+
+    // Once this becomes awaiting_campaign_match the telecaller flow is done
+    // with the lead and the Lead Routing Engine picks it up from there
+    routingStage: {
+      type: String,
+      enum: ["awaiting_qualification", "in_house_hold", "awaiting_campaign_match", "closed_in_house"],
+      default: "awaiting_qualification",
+    },
   },
   {
     timestamps: true,

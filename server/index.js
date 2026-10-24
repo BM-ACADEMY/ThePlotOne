@@ -34,6 +34,7 @@ const portalNotificationRoute = require("./routes/portalNotificationRoute");
 const adminCampaignRoutes = require("./routes/adminCampaignRoutes");
 const adminLeadsRoute = require("./routes/adminLeadsRoute");
 const adminAuditLogRoute = require("./routes/adminAuditLogRoute");
+const telecallerRoute = require("./routes/telecallerRoute");
 const bannerAdRoutes = require("./routes/bannerAdRoute");
 const formRoutes = require("./routes/formRoutes");
 const requirementRoutes = require("./routes/requirementRoutes");
@@ -134,6 +135,7 @@ app.use("/api/portal-notifications", portalNotificationRoute);
 app.use("/api/admin/campaigns", adminCampaignRoutes);
 app.use("/api/admin/leads", adminLeadsRoute);
 app.use("/api/admin/audit-log", adminAuditLogRoute);
+app.use("/api/telecaller", telecallerRoute);
 app.use("/api/shared-leads", leadRoutes);
 app.use("/api/coupons", couponRoutes);
 

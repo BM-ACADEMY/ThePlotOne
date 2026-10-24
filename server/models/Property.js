@@ -271,7 +271,17 @@ const propertySchema = new mongoose.Schema(
       default: 0
     },
     totalUnits: Number,
-    availableUnits: Number
+    availableUnits: Number,
+
+    // =====================================================
+    // 1️⃣1️⃣ IN-HOUSE INVENTORY
+    // =====================================================
+    // Flag only — telecaller pitch queue matches against in-house listings.
+    // Sourcing/CRUD for in-house inventory is a separate module.
+    isInHouseInventory: {
+      type: Boolean,
+      default: false
+    }
   },
   {
     timestamps: true
